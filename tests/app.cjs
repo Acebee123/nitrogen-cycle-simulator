@@ -202,10 +202,30 @@ const canvas = $('landscape'), tap = async ([x, y], id = 30) => { await fire(can
   check(J().caption.length > 10 && J().caption === 'So plants and animals cannot use N₂ directly.', 'The card caption follows the animation');
   const order = ['air', 'fix', 'nit1', 'nit2', 'abs', 'assim', 'feed', 'waste', 'decomp', 'denit', 'return'];
   const outs = { fix: 'NH₄⁺', nit1: 'NO₂⁻', nit2: 'NO₃⁻', abs: 'NO₃⁻', assim: 'Protein N', feed: 'Protein N', waste: 'Organic N', decomp: 'NH₄⁺', denit: 'N₂', return: 'N₂' };
+  const until = (ok, max) => { for (let s = 0; s < max && !ok(); s += .2) advance(.2); return ok(); };
+  const cow = () => state().cow;
   for (let i = 1; i < order.length; i++) {
     await fire('j-next', 'click');
     check(J().phase === 'travel', 'The atom travels to the next station: ' + order[i]);
-    advance(4.6);
+    if (order[i] === 'feed') { // the cow walks up, bites the leaf and swallows it
+      check(J().scene === 'eat' && !cow().leafEaten, 'Feeding starts with the cow scene');
+      const dx0 = cow().dx; advance(1.2);
+      check(cow().walking && cow().dx < dx0 - 5, 'The cow walks over to the plant');
+      check(until(() => cow().leafEaten, 8) && /bites/.test(J().caption), 'The cow bites the leaf off the plant');
+      const m = cow().mouth; check(Math.hypot(J().pos[0] - m[0], J().pos[1] - m[1]) < 30, 'Our atom goes into its mouth with the leaf');
+      check(until(() => cow().xray, 3) && /swallow/.test(J().caption), 'Chew, swallow: the body turns see-through to follow the atom');
+      check(until(() => J().phase === 'station', 5) && !cow().walking, 'The atom arrives in the stomach');
+    } else if (order[i] === 'waste') { // a short cut to black: hours later, in the liver
+      check(J().scene === 'later', 'Waste starts with a time skip');
+      advance(1); check(J().dark > .9 && /Hours later/.test(J().caption), 'The screen goes dark: hours later');
+      advance(2); check(J().dark === 0 && cow().xray && cow().dx > 0, 'The cow is back by the dung pile with the atom in its liver');
+    } else if (order[i] === 'decomp') { // zoom in: the cow drops dung carrying the atom
+      check(J().scene === 'poop', 'Leaving the cow is a scene of its own');
+      advance(1.5); check(view().camera.zoom > 1.8, 'The camera zooms in on the cow’s tail end');
+      advance(1.5); check(cow().freshDung && /Plop/.test(J().caption), 'Fresh dung lands on the pile');
+      const a = cow().anus; check(J().pos[1] > a[1] + 20, 'Our atom falls with the dung');
+      advance(2.7);
+    } else advance(4.6);
     check(J().station === order[i] && J().phase === 'station' && J().index === i, 'Arrives at station ' + (i + 1) + ': ' + order[i]);
     advance(7.5);
     check(J().compound === outs[order[i]], 'At ' + order[i] + ' the atom becomes ' + outs[order[i]]);

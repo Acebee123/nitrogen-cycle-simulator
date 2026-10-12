@@ -424,7 +424,8 @@
   // The reaction plays in the microscope lens on the scene; the card follows its captions.
   function updateJourneyText() {
     const st = journey.station(), travelling = journey.phase === 'travel', step = travelling ? -1 : journey.step;
-    if (step !== jStep) { jStep = step; $('j-caption').textContent = travelling ? (st.transit || 'On the way to: ' + st.title.toLowerCase() + '…') : st.captions[step] || ''; }
+    const text = travelling ? (journey.travelCaption || st.transit || 'On the way to: ' + st.title.toLowerCase() + '…') : st.captions[step] || '';
+    if (step !== jStep || text !== $('j-caption').textContent) { jStep = step; $('j-caption').textContent = text; }
     const hl = travelling ? 0 : st.hl[Math.max(0, step)];
     if (hl !== jHl) { jHl = hl; $('j-eq').innerHTML = journeyEq(st, hl); }
   }
@@ -499,7 +500,8 @@
       particleProcesses: [...new Set(scene.particles.map(p => p.recipe.process))],
       focusRoutes: scene.focusRoutes().map(({ from, to, process }) => ({ from, to, process })),
       ions: scene.ions ? Object.fromEntries(Object.entries(scene.ions.pools).map(([k, v]) => [k, v.length])) : {}, sound, particleStyle: formulaParticles ? 'formula' : 'dots',
-      journey: journey.active ? { station: journey.path[journey.index], index: journey.index, total: journey.path.length, phase: journey.phase, compound: journey.compound, path: journey.path.slice(), animT: journey.animT, pos: scene.journey && scene.journey.pos ? scene.journey.pos.slice() : null, lens: journey.lens ? { ...journey.lens } : null, caption: $('j-caption').textContent } : null
+      journey: journey.active ? { station: journey.path[journey.index], index: journey.index, total: journey.path.length, phase: journey.phase, compound: journey.compound, path: journey.path.slice(), animT: journey.animT, pos: scene.journey && scene.journey.pos ? scene.journey.pos.slice() : null, lens: journey.lens ? { ...journey.lens } : null, caption: $('j-caption').textContent, scene: journey.travel && journey.travel.plan ? journey.travel.plan.kind : null, dark: journey.dark || 0 } : null,
+      cow: scene.cowRig ? { dx: scene.cowRig.dx, walking: scene.cowRig.amp > .05, leafEaten: scene.cowRig.leafGone > .5, freshDung: scene.cowRig.fresh > .5, xray: scene.cowRig.xray > .5, mouth: scene.cowPoint('mouth'), anus: scene.cowPoint('anus') } : null
     }), writable: false
   });
 })();

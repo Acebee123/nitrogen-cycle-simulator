@@ -304,9 +304,12 @@
   }
   P.plantScale = function () { return this.L.plantK * clamp(.7 + this.model.n.plant / 85, .74, 1.3); };
   P.plantStatus = function () { return clamp((this.model.n.plant - 8) / 42, 0, 1); };
-  P.plantSway = function () { return this.reduced ? 0 : Math.sin(this.clock * 1.1) * .018 * (1 + this.storm * 2) + Math.sin(this.clock * .63) * .01; };
-  P.plantToWorld = function (p) {
-    const g = this.plantScale(), a = this.plantSway(), x0 = this.L.plantX, y0 = this.surface(x0);
+  P.plantSway = function () {
+    const jolt = (this.plantJolt || 0) * Math.sin(this.clock * 15) * .07; // shakes when the cow tears a leaf off
+    return (this.reduced ? 0 : Math.sin(this.clock * 1.1) * .018 * (1 + this.storm * 2) + Math.sin(this.clock * .63) * .01) + jolt;
+  };
+  P.plantToWorld = function (p, sway) {
+    const g = this.plantScale(), a = sway === undefined ? this.plantSway() : sway, x0 = this.L.plantX, y0 = this.surface(x0);
     return [x0 + (p[0] * Math.cos(a) - p[1] * Math.sin(a)) * g, y0 + (p[0] * Math.sin(a) + p[1] * Math.cos(a)) * g];
   };
   P.stemWorld = function (q) { return this.plantToWorld(stemAt(q)); };
@@ -314,8 +317,30 @@
     if (which === 'canopy') return this.plantToWorld([8, -170]);
     if (which === 'label') return this.plantToWorld([0, -275]);
     if (which === 'leaf') return this.plantToWorld([-40, -120]);
+    if (which === 'bite') return this.biteLeaf().centre;
     return this.plantToWorld([0, -150]);
   };
+  // Leaf geometry in the world (no wind), for the leaf the cow eats.
+  function leafShape(lf) {
+    const base = stemAt(lf.q), ang = -Math.PI / 2 + lf.side * (Math.PI / 2 - lf.up);
+    const tip = [base[0] + Math.cos(ang) * lf.len, base[1] + Math.sin(ang) * lf.len];
+    const mid = [base[0] + Math.cos(ang) * lf.len * .55, base[1] + Math.sin(ang) * lf.len * .55 - 6];
+    const dir = Math.atan2(tip[1] - mid[1], tip[0] - mid[0]) + lf.side * .192;
+    return { base, tip, mid, dir };
+  }
+  P.leafGeom = function (i, still) {
+    const lf = this.plantGeo.leaves[i], s = leafShape(lf), w = p => this.plantToWorld(p, still ? 0 : undefined);
+    const at = f => [s.tip[0] + Math.cos(s.dir) * lf.size * f, s.tip[1] + Math.sin(s.dir) * lf.size * f];
+    return { i, tip: w(s.tip), centre: w(at(.5)), bite: w(at(.22)) };
+  };
+  // The cow browses the leaf on its side of the plant that is nearest a comfortable mouth height.
+  P.biteLeafIndex = function () {
+    const g = this.plantScale(), want = 100 * this.L.cowK / g;
+    let best = 1, d0 = Infinity;
+    for (const i of [1, 3, 5]) { const s = leafShape(this.plantGeo.leaves[i]), h = -(s.tip[1] + Math.sin(s.dir) * this.plantGeo.leaves[i].size * .22), d = Math.abs(h - want); if (d < d0) { d0 = d; best = i; } }
+    return best;
+  };
+  P.biteLeaf = function (still) { return this.leafGeom(this.biteLeafIndex(), still); };
   P.plantBox = function () { const g = this.plantScale(), x = this.L.plantX, y = this.surface(x); return [x - 105 * g, y - 275 * g, x + 105 * g, y]; };
 
   function leafletPath(ctx, l) {
@@ -348,19 +373,27 @@
     const glow = this.plantGlow || 0;
     ctx.save(); ctx.translate(x0, y0); ctx.scale(g, g); ctx.rotate(sway);
     const leafColor = i => { const s = clamp(status * 1.35 - (1 - i / 9) * .45 + .1, 0, 1); return mix(mix('#cdbb4f', '#8fae45', clamp(s * 2, 0, 1)), '#3e8a37', clamp(s * 1.4 - .4, 0, 1)); };
+    const rig = this.cowRig;
     const drawLeaf = (lf, back) => {
       const base = stemAt(lf.q), wind = this.reduced ? 0 : Math.sin(t * 1.6 + lf.phase) * .05 * (1 + this.storm * 2.5);
       const ang = -Math.PI / 2 + lf.side * (Math.PI / 2 - lf.up) + wind;
       const tip = [base[0] + Math.cos(ang) * lf.len, base[1] + Math.sin(ang) * lf.len];
       const mid = [base[0] + Math.cos(ang) * lf.len * .55, base[1] + Math.sin(ang) * lf.len * .55 - 6];
+      const gone = rig && rig.leafI === lf.i ? rig.leafGone : 0;
       ctx.strokeStyle = back ? '#4f7232' : '#6f9440'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+      if (gone > .985) { // bitten off: a torn stalk is all that is left
+        const e = [lerp(base[0], mid[0], .8), lerp(base[1], mid[1], .8)];
+        ctx.beginPath(); ctx.moveTo(base[0], base[1]); ctx.lineTo(e[0], e[1]); ctx.stroke();
+        ctx.fillStyle = mix(leafColor(lf.i), '#5a4a20', .35); ctx.beginPath(); ctx.moveTo(e[0] - 2, e[1] - 1); ctx.lineTo(e[0] + 3, e[1] - 4); ctx.lineTo(e[0] + 2, e[1] - 1); ctx.lineTo(e[0] + 5, e[1] + 1); ctx.lineTo(e[0], e[1] + 2); ctx.closePath(); ctx.fill();
+        return;
+      }
       ctx.beginPath(); ctx.moveTo(base[0], base[1]); ctx.quadraticCurveTo(mid[0], mid[1], tip[0], tip[1]); ctx.stroke();
       const col = back ? mix(leafColor(lf.i), '#16351a', .3) : leafColor(lf.i), droop = .32 * lf.side;
-      const dir = Math.atan2(tip[1] - mid[1], tip[0] - mid[0]);
+      const dir = Math.atan2(tip[1] - mid[1], tip[0] - mid[0]), grow = 1 - gone; // regrows after the cow has eaten it
       // two side leaflets, then the terminal leaflet
-      drawLeaflet(ctx, tip[0], tip[1], dir - lf.side * 1.05 + droop + wind, lf.size * .82, col, 1, glow);
-      drawLeaflet(ctx, tip[0], tip[1], dir + lf.side * .95 + droop + wind, lf.size * .8, mix(col, '#1c3c1d', .12), 1, glow);
-      drawLeaflet(ctx, tip[0] + Math.cos(dir) * 5, tip[1] + Math.sin(dir) * 5, dir + droop * .6 + wind * 1.2, lf.size, col, 1, glow);
+      drawLeaflet(ctx, tip[0], tip[1], dir - lf.side * 1.05 + droop + wind, lf.size * .82 * grow, col, 1, glow);
+      drawLeaflet(ctx, tip[0], tip[1], dir + lf.side * .95 + droop + wind, lf.size * .8 * grow, mix(col, '#1c3c1d', .12), 1, glow);
+      drawLeaflet(ctx, tip[0] + Math.cos(dir) * 5 * grow, tip[1] + Math.sin(dir) * 5 * grow, dir + droop * .6 + wind * 1.2, lf.size * grow, col, 1, glow);
       ctx.fillStyle = '#a7c46a'; ctx.beginPath(); ctx.arc(tip[0], tip[1], 1.8, 0, TAU); ctx.fill();
     };
     for (const lf of geo.leaves) if (lf.back) drawLeaf(lf, true);
@@ -459,32 +492,76 @@
   };
 
   /* ---------- cow (drawn facing right, mirrored to face the plant) ---------- */
+  // Journey mode sets cowAnim (where to stand, how to hold the head, what is happening);
+  // cowRig turns it into smooth motion, so the cow walks rather than jumps unless a
+  // scene cut asks for a snap.
+  const ORGANS = { rumen: [-6, -112], liver: [64, -124], anus: [-116, -124] };
+  P.cowDX = function () { return this.cowRig ? this.cowRig.dx : 0; };
+  P.updateCow = function (dt) {
+    const A = this.cowAnim, rig = this.cowRig || (this.cowRig = { dx: 0, gait: 0, amp: 0, xray: 0, leafI: -1, leafGone: 0, fresh: 0, poopT: null });
+    const target = A ? A.dx || 0 : 0, before = rig.dx;
+    if (A && (A.exact || A.snap)) rig.dx = target;
+    else { const d = target - rig.dx; rig.dx += Math.sign(d) * Math.min(Math.abs(d), dt * 90); }
+    const moved = A && A.snap ? 0 : rig.dx - before, speed = dt > 0 ? Math.abs(moved) / dt : 0;
+    rig.gait -= moved / (88 * this.L.cowK) * TAU; // stepping forward (toward the head) advances the gait
+    rig.amp = A && A.snap ? 0 : rig.amp + ((this.reduced ? 0 : clamp(speed / 45, 0, 1)) - rig.amp) * (1 - Math.exp(-dt * 10));
+    rig.xray += ((A && A.xray ? 1 : 0) - rig.xray) * (1 - Math.exp(-dt * 5));
+    if (A && A.leafGone) { rig.leafI = this.biteLeafIndex(); rig.leafGone = 1; } else rig.leafGone = Math.max(0, rig.leafGone - dt * .7);
+    rig.fresh = A && A.fresh ? 1 : Math.max(0, rig.fresh - dt * .35);
+    rig.poopT = A && A.poopT !== undefined ? A.poopT : null;
+  };
   P.cowPose = function () {
-    const t = this.clock, feeding = this.activity('feeding') > .05;
+    const t = this.clock, A = this.cowAnim || {}, rig = this.cowRig || { amp: 0, gait: 0, xray: 0 }, feeding = this.activity('feeding') > .05;
     const cycle = this.reduced ? 0 : (t % 12) / 12;
-    // grazes most of the time and lifts its head to look around now and then
-    const lift = feeding ? smooth((cycle - .7) / .07) * (1 - smooth((cycle - .9) / .07)) : 1;
+    // grazes most of the time and lifts its head to look around now and then; walking lifts it too
+    const lift = Math.max(feeding ? smooth((cycle - .7) / .07) * (1 - smooth((cycle - .9) / .07)) : 1, rig.amp), jaw = A.chew !== undefined;
+    const chew = this.reduced ? 0 : Math.sin(t * (jaw ? 9.5 : 8)) * (jaw ? A.chew : lift < .5 ? 1 : .3);
     return {
-      graze: 1 - lift, chew: this.reduced ? 0 : Math.sin(t * 8) * (lift < .5 ? 1 : .3),
+      graze: 1 - lift, chew,
       tail: this.reduced ? 0 : Math.sin(t * 1.5) * .5 + Math.sin(t * .37) * .3,
       ear: this.reduced ? 0 : Math.max(0, Math.sin(t * 2.1) - .9) * 6,
-      breathe: this.reduced ? 0 : Math.sin(t * 1.4)
+      breathe: this.reduced ? 0 : Math.sin(t * 1.4),
+      gait: rig.gait, amp: rig.amp, xray: rig.xray, organ: A.organ || null, tailLift: A.tailLift || 0,
+      head: A.head || null, headW: A.headW || 0, biteHead: A.bite ? headForMouth(this.worldToCow(A.bite)) : null, biteW: A.biteW || 0,
+      mouth: Math.max(A.open || 0, jaw ? Math.max(0, chew) * .45 : 0), leaf: A.leaf || 0, bolus: A.bolus === undefined ? -1 : A.bolus
     };
   };
+  // Head angle that puts the mouth on a target: level for high leaves, nose-down for grass.
+  function headForMouth(m) {
+    const a = lerp(1.32, .1, clamp((-m[1] - 4) / 150, 0, 1));
+    return { x: m[0] - (Math.cos(a) * 62 - Math.sin(a) * 8), y: m[1] - (Math.sin(a) * 62 + Math.cos(a) * 8), a };
+  }
   function cowHead(pose) { // poll position and head angle in cow space
-    const g = pose.graze;
-    return { x: lerp(120, 136, g), y: lerp(-150, -66, g) + pose.chew * .5, a: lerp(.55, 1.32, g) };
+    const g = pose.graze; let h = { x: lerp(120, 136, g), y: lerp(-150, -66, g), a: lerp(.55, 1.32, g) };
+    if (pose.amp) h.y += Math.sin((pose.gait || 0) * 2) * 2.2 * pose.amp; // nods as it walks
+    for (const [o, w] of [[pose.head, pose.headW], [pose.biteHead, pose.biteW]]) if (o && w > 0) h = { x: lerp(h.x, o.x, w), y: lerp(h.y, o.y, w), a: lerp(h.a, o.a, w) };
+    h.y += pose.chew * .5;
+    return h;
   }
   const headPt = (h, px, py) => [h.x + Math.cos(h.a) * px - Math.sin(h.a) * py, h.y + Math.sin(h.a) * px + Math.cos(h.a) * py];
-  P.cowToWorld = function (p) { const k = this.L.cowK, x = this.L.cowX, y = this.surface(x) - 1; return [x - p[0] * k, y + p[1] * k]; };
+  // The food pipe, from the throat down the neck into the rumen (cow space).
+  const gulletPts = h => [headPt(h, 4, 14), headPt(h, -14, 19), [100, -108], [74, -114], [44, -115], [18, -114], ORGANS.rumen];
+  const GUT = [ORGANS.liver, [44, -98], [24, -78], [0, -72], [-20, -80], [-34, -70], [-50, -82], [-64, -70], [-80, -84], [-94, -74], [-104, -94], [-110, -112], ORGANS.anus];
+  function polyAt(pts, u) {
+    const seg = []; let total = 0;
+    for (let i = 1; i < pts.length; i++) { const l = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); seg.push(l); total += l; }
+    let d = clamp(u, 0, 1) * total;
+    for (let i = 0; i < seg.length; i++) { if (d <= seg[i] || i === seg.length - 1) { const f = seg[i] ? clamp(d / seg[i], 0, 1) : 0; return [lerp(pts[i][0], pts[i + 1][0], f), lerp(pts[i][1], pts[i + 1][1], f)]; } d -= seg[i]; }
+    return pts[pts.length - 1].slice();
+  }
+  P.cowToWorld = function (p) { const k = this.L.cowK, x = this.L.cowX + this.cowDX(), y = this.surface(x) - 1; return [x - p[0] * k, y + p[1] * k]; };
+  P.worldToCow = function (w) { const k = this.L.cowK, x = this.L.cowX + this.cowDX(), y = this.surface(x) - 1; return [(x - w[0]) / k, (w[1] - y) / k]; };
   P.cowPoint = function (which) {
     const h = cowHead(this.cowPose());
     if (which === 'mouth') return this.cowToWorld(headPt(h, 62, 8));
     if (which === 'back') return this.cowToWorld([-10, -162]);
     if (which === 'rear') return this.cowToWorld([-114, -86]);
+    if (ORGANS[which]) return this.cowToWorld(ORGANS[which]);
     return this.cowToWorld([0, -105]);
   };
-  P.cowBox = function () { const k = this.L.cowK, x = this.L.cowX, y = this.surface(x); return [x - 200 * k, y - 170 * k, x + 125 * k, y + 4]; };
+  P.gulletPoint = function (u) { return this.cowToWorld(polyAt(gulletPts(cowHead(this.cowPose())), u)); };
+  P.gutPoint = function (u) { return this.cowToWorld(polyAt(GUT, u)); };
+  P.cowBox = function () { const k = this.L.cowK, x = this.L.cowX + this.cowDX(), y = this.surface(x); return [x - 200 * k, y - 170 * k, x + 125 * k, y + 4]; };
 
   function cowBody(ctx) {
     ctx.beginPath(); ctx.moveTo(52, -147);
@@ -532,20 +609,26 @@
   }
 
   P.drawCow = function (ctx, t) {
-    const k = this.L.cowK, x = this.L.cowX, y = this.surface(x) - 1, pose = this.cowPose(), h = cowHead(pose);
-    const black = '#22201d';
+    const k = this.L.cowK, x = this.L.cowX + this.cowDX(), y = this.surface(x) - 1, pose = this.cowPose(), h = cowHead(pose);
+    const black = '#22201d', amp = pose.amp, ph = pose.gait, swing = .26 * amp, bob = Math.sin(ph * 2) * 1.4 * amp;
+    // a walking leg swings from the hip and lifts its hoof while it moves forward
+    const leg = (lx, top, p) => { const lift = Math.max(0, -Math.cos(p)) * 7 * amp; ctx.translate(lx, top - lift); ctx.rotate(swing * Math.sin(p)); ctx.translate(-lx, -top); };
     ctx.save(); ctx.translate(x, y); ctx.scale(-k, k); ctx.lineJoin = 'round';
     const sh = ctx.createRadialGradient(-6, 1, 10, -6, 1, 135); sh.addColorStop(0, 'rgba(20,30,15,.45)'); sh.addColorStop(1, 'rgba(20,30,15,0)');
     ctx.fillStyle = sh; ctx.beginPath(); ctx.ellipse(-6, 1, 135, 11, 0, 0, TAU); ctx.fill();
     // far legs, in shade
-    for (const [fn, lx] of [[frontLeg, 60], [rearLeg, -70]]) { ctx.fillStyle = legPaint(ctx, lx, true); fn(ctx, lx); ctx.fill(); hoof(ctx, lx, true); }
-    // tail hugs the buttock and swings below
-    const tipX = -119 - Math.sin(pose.tail) * 16, tipY = -40 + Math.abs(Math.sin(pose.tail)) * 4;
+    for (const [fn, lx, top, p] of [[frontLeg, 60, -104, ph + Math.PI], [rearLeg, -70, -110, ph]]) { ctx.save(); leg(lx, top, p); ctx.fillStyle = legPaint(ctx, lx, true); fn(ctx, lx); ctx.fill(); hoof(ctx, lx, true); ctx.restore(); }
+    // tail hugs the buttock and swings below; it lifts in an arch when the cow drops dung
+    ctx.save(); ctx.translate(0, bob);
+    // raised, it arches back and away from the body in a wide curve, the tuft hanging clear
+    const sw = Math.sin(pose.tail), L = pose.tailLift, tipX = lerp(-119 - sw * 16, -178 - sw * 2, L), tipY = lerp(-40 + Math.abs(sw) * 4, -118, L);
     ctx.strokeStyle = '#ece6da'; ctx.lineWidth = 3.4; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(-108, -142); ctx.bezierCurveTo(-120, -126, -121, -90, tipX, tipY + 6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-108, -142); ctx.bezierCurveTo(lerp(-120, -120, L), lerp(-126, -166, L), lerp(-121, -166, L), lerp(-90, -160, L), tipX, tipY + 6); ctx.stroke();
     ctx.fillStyle = black; ctx.beginPath(); ctx.moveTo(tipX - 1, tipY - 6); ctx.bezierCurveTo(tipX - 7, tipY + 2, tipX - 6, tipY + 14, tipX, tipY + 18); ctx.bezierCurveTo(tipX + 6, tipY + 14, tipX + 6, tipY + 2, tipX + 1, tipY - 6); ctx.fill();
+    ctx.restore();
     // near legs (their tops tuck under the body)
-    for (const [fn, lx, patch] of [[frontLeg, 74, false], [rearLeg, -84, true]]) {
+    for (const [fn, lx, patch, top, p] of [[frontLeg, 74, false, -104, ph], [rearLeg, -84, true, -110, ph + Math.PI]]) {
+      ctx.save(); leg(lx, top, p);
       ctx.fillStyle = legPaint(ctx, lx, false); fn(ctx, lx); ctx.fill();
       ctx.save(); fn(ctx, lx); ctx.clip();
       const ao = ctx.createLinearGradient(0, -74, 0, -46); ao.addColorStop(0, 'rgba(60,50,40,.45)'); ao.addColorStop(1, 'rgba(60,50,40,0)'); ctx.fillStyle = ao; ctx.fillRect(lx - 30, -80, 60, 36);
@@ -553,7 +636,9 @@
       ctx.restore();
       ctx.strokeStyle = 'rgba(70,60,50,.28)'; ctx.lineWidth = .9; fn(ctx, lx); ctx.stroke();
       hoof(ctx, lx, false);
+      ctx.restore();
     }
+    ctx.save(); ctx.translate(0, bob);
     // shared coat gradient keeps body and neck seamless
     const coat = ctx.createLinearGradient(0, -160, 0, -50); coat.addColorStop(0, '#fffdf9'); coat.addColorStop(.55, '#f4f0e8'); coat.addColorStop(1, '#cdc6b8');
     // neck from shoulder to the head
@@ -563,6 +648,7 @@
     ctx.save(); neck(); ctx.clip();
     ctx.fillStyle = black; const nb = headPt(h, -14, 4); ctx.beginPath(); ctx.ellipse(nb[0], nb[1], 30, 24, h.a, 0, TAU); ctx.fill();
     const dewl = ctx.createLinearGradient(bot[0], bot[1], 96, -100); dewl.addColorStop(0, 'rgba(60,50,40,0)'); dewl.addColorStop(1, 'rgba(60,50,40,.18)'); ctx.fillStyle = dewl; ctx.fillRect(40, -170, 140, 180);
+    if (pose.xray > .02) { ctx.fillStyle = rgba('#0b1d24', .62 * pose.xray); ctx.fillRect(20, -240, 220, 240); }
     ctx.restore();
     ctx.strokeStyle = 'rgba(70,60,50,.3)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(52, -150); ctx.bezierCurveTo(78, -153, c2[0], c2[1], top[0], top[1]); ctx.moveTo(bot[0], bot[1]); ctx.bezierCurveTo(c3[0], c3[1], 106, -96, 96, -100); ctx.stroke();
     ctx.save(); ctx.translate(0, -50); ctx.scale(1, 1 + pose.breathe * .006); ctx.translate(0, 50);
@@ -579,6 +665,7 @@
     ctx.strokeStyle = 'rgba(90,80,70,.2)'; ctx.lineWidth = 1.2;
     ctx.beginPath(); ctx.moveTo(-70, -148); ctx.quadraticCurveTo(-80, -118, -98, -100); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(76, -136); ctx.quadraticCurveTo(66, -108, 80, -84); ctx.stroke();
+    if (pose.xray > .02) xrayOrgans(ctx, pose, t); // see-through body: where the atom is inside the cow
     ctx.restore();
     ctx.strokeStyle = 'rgba(70,60,50,.32)'; ctx.lineWidth = 1; cowBody(ctx); ctx.stroke();
     ctx.restore();
@@ -586,6 +673,7 @@
     const ug = ctx.createLinearGradient(0, -64, 0, -44); ug.addColorStop(0, '#f2c1b8'); ug.addColorStop(1, '#d99488');
     ctx.fillStyle = ug; ctx.beginPath(); ctx.moveTo(-64, -62); ctx.bezierCurveTo(-62, -44, -36, -42, -32, -60); ctx.fill();
     ctx.fillStyle = '#d78b80'; for (const tx of [-55, -41]) { ctx.beginPath(); ctx.ellipse(tx, -45, 2, 4.2, 0, 0, TAU); ctx.fill(); }
+    if (pose.xray > .02) gullet(ctx, pose, h);
     // head
     ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(h.a);
     ctx.save(); ctx.translate(4, -4); ctx.rotate(-2.25 - pose.ear * .25); // ear
@@ -600,12 +688,131 @@
     ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.beginPath(); ctx.ellipse(24, 8, 14, 8, .1, 0, TAU); ctx.fill(); // cheek
     ctx.restore();
     ctx.fillStyle = '#5a3a35'; ctx.beginPath(); ctx.ellipse(65, 1.5, 1.7, 2.6, .5, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#6a4842'; ctx.lineWidth = .9; ctx.beginPath(); ctx.moveTo(54, 14 + pose.chew * .4); ctx.quadraticCurveTo(60, 16 + pose.chew * .6, 65, 13); ctx.stroke();
+    const m = pose.mouth;
+    if (m > .02) { // the jaw drops: a dark mouth, then the lower jaw swung down from its hinge
+      const ja = m * .38, f = [28 + 38 * Math.cos(ja), 12 + 38 * Math.sin(ja)];
+      ctx.fillStyle = '#3d1c1e'; ctx.beginPath(); ctx.moveTo(28, 12); ctx.lineTo(66, 11); ctx.lineTo(f[0], f[1]); ctx.closePath(); ctx.fill();
+      if (pose.leaf > .02) leafInMouth(ctx, pose.leaf, t, [64, lerp(12, f[1], .45)]);
+      ctx.save(); ctx.translate(28, 12); ctx.rotate(ja); ctx.translate(-28, -12);
+      ctx.fillStyle = '#1b1a18'; ctx.beginPath(); ctx.moveTo(28, 12); ctx.lineTo(64, 12); ctx.bezierCurveTo(68, 13, 66, 18, 60, 18.5); ctx.bezierCurveTo(52, 20, 44, 18, 38, 17.5); ctx.bezierCurveTo(32, 18, 28, 16, 28, 12); ctx.fill();
+      ctx.fillStyle = '#c98f86'; ctx.beginPath(); ctx.ellipse(60, 14.5, 6, 2.8, 0, 0, TAU); ctx.fill();
+      ctx.restore();
+    } else {
+      if (pose.leaf > .02) leafInMouth(ctx, pose.leaf, t, [64, 13]);
+      ctx.strokeStyle = '#6a4842'; ctx.lineWidth = .9; ctx.beginPath(); ctx.moveTo(54, 14 + pose.chew * .4); ctx.quadraticCurveTo(60, 16 + pose.chew * .6, 65, 13); ctx.stroke();
+    }
     ctx.fillStyle = '#f4efe6'; ctx.beginPath(); ctx.ellipse(24, -3, 4.4, 3.3, .1, 0, TAU); ctx.fill(); // eye
     ctx.fillStyle = '#120e0c'; ctx.beginPath(); ctx.ellipse(25, -3, 3.1, 2.9, .1, 0, TAU); ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.beginPath(); ctx.arc(26.2, -4.2, .9, 0, TAU); ctx.fill();
     ctx.strokeStyle = '#0d0b0a'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(24.5, -2.6, 5, 3.5, 5.7); ctx.stroke();
     ctx.restore();
+    ctx.restore();
+    ctx.restore();
+  };
+  function smoothPath(ctx, pts) {
+    ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length - 1; i++) ctx.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
+    const l = pts[pts.length - 1]; ctx.lineTo(l[0], l[1]);
+  }
+  // X-ray of the trunk: spine, ribs, rumen, true stomach, liver and intestines.
+  function xrayOrgans(ctx, pose, t) {
+    const a = pose.xray, pulse = .5 + .5 * Math.sin(t * 5), on = id => pose.organ === id ? pulse : 0;
+    ctx.fillStyle = rgba('#0b1d24', .62 * a); ctx.fillRect(-140, -180, 300, 150);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = rgba('#d6eef7', .13 * a); ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-108, -140); ctx.bezierCurveTo(-60, -150, 10, -147, 76, -146); ctx.stroke();
+    ctx.lineWidth = 2; for (let i = 0; i < 8; i++) { const rx = 62 - i * 10; ctx.beginPath(); ctx.moveTo(rx, -146); ctx.quadraticCurveTo(rx - 12, -112, rx - 4, -76 + i * 1.5); ctx.stroke(); }
+    const organ = (path, fill, edge, glow) => { path(); ctx.fillStyle = rgba(fill, (.36 + glow * .3) * a); ctx.fill(); ctx.strokeStyle = rgba(edge, (.7 + glow * .3) * a); ctx.lineWidth = 1.5 + glow * 1.5; ctx.stroke(); };
+    // intestines wind back to the tail end
+    const gl = on('gut'); smoothPath(ctx, [[40, -84]].concat(GUT.slice(2)));
+    ctx.strokeStyle = rgba('#f0a6a6', (.5 + gl * .4) * a); ctx.lineWidth = 8 + gl * 2; ctx.stroke();
+    ctx.strokeStyle = rgba('#ffd9d0', (.45 + gl * .4) * a); ctx.lineWidth = 2.4; ctx.stroke();
+    // the rumen: a huge fermenting stomach, with plant matter churning inside
+    const gr = on('rumen');
+    organ(() => { ctx.beginPath(); ctx.ellipse(ORGANS.rumen[0], ORGANS.rumen[1], 44, 30, -.08, 0, TAU); }, '#8fbf5a', '#d4f5a0', gr);
+    ctx.strokeStyle = rgba('#e9f7b0', .5 * a); ctx.lineWidth = 2;
+    for (let i = 0; i < 6; i++) { const q = t * .7 + i * 1.05, cx = ORGANS.rumen[0] + Math.cos(q) * 24, cy = ORGANS.rumen[1] + Math.sin(q) * 14; ctx.beginPath(); ctx.arc(cx, cy, 5, q, q + 2); ctx.stroke(); }
+    organ(() => { ctx.beginPath(); ctx.ellipse(34, -88, 16, 9, .35, 0, TAU); }, '#e7a07a', '#ffd0b0', gr * .6);
+    organ(() => { ctx.beginPath(); ctx.ellipse(ORGANS.liver[0], ORGANS.liver[1], 12, 18, .35, 0, TAU); }, '#b8434a', '#ff9a9a', on('liver'));
+  }
+  function gullet(ctx, pose, h) {
+    const a = pose.xray, pts = gulletPts(h);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    smoothPath(ctx, pts); ctx.strokeStyle = rgba('#ffd9b8', .45 * a); ctx.lineWidth = 6; ctx.stroke();
+    ctx.strokeStyle = rgba('#7a3b3b', .5 * a); ctx.lineWidth = 2.6; ctx.stroke();
+    if (pose.bolus >= 0 && pose.bolus <= 1) { // the chewed mouthful sliding down
+      const [bx, by] = polyAt(pts, pose.bolus), g = ctx.createRadialGradient(bx, by, 0, bx, by, 12);
+      g.addColorStop(0, 'rgba(216,245,154,.9)'); g.addColorStop(1, 'rgba(159,209,106,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, 12, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#7fb24c'; ctx.beginPath(); ctx.ellipse(bx, by, 6, 4.5, 0, 0, TAU); ctx.fill();
+    }
+  }
+  function leafInMouth(ctx, amount, t, at) {
+    const s = 18 * amount, wob = Math.sin(t * 9.5) * .16;
+    ctx.save(); ctx.translate(at[0] - 3, at[1]); ctx.rotate(.4 + wob);
+    ctx.strokeStyle = '#6f9440'; ctx.lineWidth = 1.4; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(s * .45, 0); ctx.stroke();
+    for (const [ang, f] of [[-.75, .8], [.8, .78], [0, 1]]) {
+      ctx.save(); ctx.translate(s * .45, 0); ctx.rotate(ang);
+      const l = s * f, w = l * .38, g = ctx.createLinearGradient(0, -w, 0, w); g.addColorStop(0, '#a5d66e'); g.addColorStop(1, '#3e7a2c');
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.bezierCurveTo(l * .15, -w, l * .7, -w, l, 0); ctx.bezierCurveTo(l * .7, w, l * .15, w, 0, 0); ctx.fillStyle = g; ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+  // Names the organ our atom is in, drawn upright in world space.
+  P.drawCowLabels = function (ctx) {
+    const rig = this.cowRig, A = this.cowAnim; if (!rig || rig.xray < .35 || !A || !A.organ) return;
+    const name = { rumen: 'stomach (rumen)', liver: 'liver', gut: 'intestine' }[A.organ], at = A.organ === 'gut' ? this.gutPoint(.55) : this.cowPoint(A.organ);
+    const px = this.s * this.camera.zoom, k = this.L.cowK;
+    // below the organ, so it never sits on the atom's formula tag (which floats above the atom)
+    ctx.save(); ctx.translate(at[0], at[1] + ({ rumen: 44, liver: 32, gut: -26 }[A.organ]) * k); ctx.scale(1 / px, 1 / px); ctx.globalAlpha = clamp((rig.xray - .35) * 2, 0, 1);
+    ctx.font = '700 12px system-ui, sans-serif'; const w = ctx.measureText(name).width + 18;
+    ctx.fillStyle = 'rgba(8,22,26,.82)'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-w / 2, -11, w, 22, 11) : ctx.rect(-w / 2, -11, w, 22); ctx.fill();
+    ctx.strokeStyle = 'rgba(180,235,255,.6)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#e8f8ff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(name, 0, .5);
+    ctx.restore();
+  };
+
+  /* ---------- dung: the drop, the splat and the fresh pat ---------- */
+  const DROPS = [{ s: 1.6, r: 12, dx: 0 }, { s: 2.2, r: 10, dx: 6 }, { s: 2.75, r: 8, dx: -5 }];
+  // Pieces of dung at time T of the drop; also used to carry the atom down with the first one.
+  P.dungDrop = function (T) {
+    const k = this.L.cowK, px = this.L.dungX - 6, ay = this.cowPoint('anus')[1], base = this.surface(px) - 5 * k, g = 1500 * k, out = [];
+    let stack = 0;
+    for (const d of DROPS) {
+      const e = T - d.s, r = d.r * k, x = px + d.dx * k; if (e < 0) break;
+      const ex = .42, y0 = ay + r * 1.3, rest = base - stack - r * .5, tl = ex + Math.sqrt(Math.max(0, 2 * (rest - y0) / g));
+      if (e < ex) { const len = r * 2.6 * e / ex; out.push({ x, y: ay + len / 2 - r * .2, rx: r * .72, ry: len / 2 + r * .25, state: 'hang', r }); }
+      else if (e < tl) { const f = e - ex; out.push({ x, y: y0 + .5 * g * f * f, rx: r * .78, ry: r * 1.2, state: 'fall', r }); }
+      else { const f = e - tl, wob = Math.exp(-f * 7) * Math.cos(f * 28); out.push({ x, y: rest, rx: r * (1.35 + .3 * wob), ry: r * (.58 - .18 * wob), state: 'land', since: f, r }); }
+      stack += r * .75;
+    }
+    return out;
+  };
+  P.drawFreshDung = function (ctx, t) {
+    const rig = this.cowRig; if (!rig || (rig.poopT === null && rig.fresh <= .01)) return;
+    const pieces = this.dungDrop(rig.poopT !== null ? rig.poopT : 99), k = this.L.cowK;
+    ctx.save(); ctx.globalAlpha = rig.poopT !== null ? 1 : rig.fresh;
+    for (const p of pieces) {
+      const g = ctx.createRadialGradient(p.x - p.rx * .3, p.y - p.ry * .5, 1, p.x, p.y, Math.max(p.rx, p.ry) * 1.2);
+      g.addColorStop(0, '#7a5534'); g.addColorStop(.6, '#4f3520'); g.addColorStop(1, '#2e1f12'); ctx.fillStyle = g;
+      ctx.beginPath(); ctx.ellipse(p.x, p.y, p.rx, p.ry, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(255,235,200,.28)'; ctx.beginPath(); ctx.ellipse(p.x - p.rx * .3, p.y - p.ry * .45, p.rx * .35, p.ry * .18, -.2, 0, TAU); ctx.fill(); // wet shine
+      if (p.state === 'land' && p.since < .5) { // splat
+        const f = p.since, fade = 1 - f / .5; ctx.fillStyle = rgba('#4a3220', fade);
+        for (let i = 0; i < 7; i++) { const a = -Math.PI * (.12 + .76 * i / 6), v = (70 + (i % 3) * 22) * k; ctx.beginPath(); ctx.arc(p.x + Math.cos(a) * v * f, p.y + Math.sin(a) * v * f + 260 * k * f * f, 1.7 * k, 0, TAU); ctx.fill(); }
+      }
+    }
+    // a fresh pat steams and draws a couple of flies
+    const landed = pieces.filter(p => p.state === 'land'), top = landed.length ? Math.min(...landed.map(p => p.y - p.ry)) : null;
+    if (top !== null && !this.reduced) {
+      const px = this.L.dungX - 6;
+      for (let i = 0; i < 3; i++) { const u = (t * .45 + i / 3) % 1, sx = px + (i - 1) * 6 * k + Math.sin(t * 2 + i) * 3 * k * u, sy = top - 4 - u * 30 * k; ctx.fillStyle = rgba('#f2efe6', Math.sin(u * Math.PI) * .22); ctx.beginPath(); ctx.arc(sx, sy, (3 + u * 5) * k, 0, TAU); ctx.fill(); }
+      if (landed.length === DROPS.length) for (let i = 0; i < 2; i++) {
+        const a = t * (3.2 + i * 1.3) + i * 2, fx = px + Math.cos(a) * 15 * k, fy = top - 12 * k + Math.sin(a * 1.4) * 6 * k, flap = Math.abs(Math.sin(t * 70 + i));
+        ctx.fillStyle = 'rgba(230,240,255,.6)'; ctx.beginPath(); ctx.ellipse(fx - 1.2 * k, fy - 1.4 * k, 1.6 * k, .8 * k * flap + .2, -.5, 0, TAU); ctx.ellipse(fx + 1.2 * k, fy - 1.4 * k, 1.6 * k, .8 * k * flap + .2, .5, 0, TAU); ctx.fill();
+        ctx.fillStyle = '#141414'; ctx.beginPath(); ctx.arc(fx, fy, 1.3 * k, 0, TAU); ctx.fill();
+      }
+    }
     ctx.restore();
   };
 

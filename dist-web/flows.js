@@ -432,6 +432,9 @@
     this.focusFade += ((this.selected || this.journey ? 1 : 0) - this.focusFade) * (1 - Math.exp(-dt * 6));
     this.flash = Math.max(0, this.flash - dt * 2.6); this.shake = Math.max(0, this.shake - dt);
     this.plantGlow = Math.max(0, this.plantGlow - dt * .5);
+    this.plantJolt = Math.max(0, (this.plantJolt || 0) - dt * 1.4);
+    if (!this.cowStamp) this.updateCow(dt); // journey mode may already have moved the cow this frame
+    this.cowStamp = false;
     if (this.inputPulse) this.inputPulse.remaining = Math.max(0, this.inputPulse.remaining - dt);
     if (this.bolt) { this.bolt.t += dt; if (this.bolt.t > this.bolt.life) this.bolt = null; }
     this.journeyClock = (this.journeyClock || 0) + dt;
@@ -484,9 +487,13 @@
     this.drawIons(ctx, ['ammonium', 'nitrite', 'nitrate', 'leached']);
     if (this.inputPulse && this.inputPulse.remaining > 0) this.drawInputPulse(ctx);
     this.drawLitter(ctx, t);
-    this.drawCow(ctx, t);
+    // the cow passes in front of the plant when it walks up to browse it
+    const browsing = this.L.cowX + this.cowDX() - 205 * this.L.cowK < this.L.plantX + 118 * this.plantScale() + 24;
+    if (!browsing) this.drawCow(ctx, t);
     this.drawPlant(ctx, t);
+    if (browsing) this.drawCow(ctx, t);
     this.drawGrass(ctx, t, false);
+    this.drawFreshDung(ctx, t); // on top of the grass, so the drop and the fresh pat are easy to see
     this.drawFallingLeaves(ctx);
     if (!this.journey) for (const p of this.particles) if (p.progress >= 0 && !(this.focusFade > .05 && this.processMatch(p.recipe.process))) this.drawParticle(ctx, p, false);
     this.drawEffects(ctx, t, false);
@@ -500,7 +507,7 @@
     if (this.focusFade > .01) {
       this.drawSpotlight(ctx, wt, t);
       ctx.setTransform(...wt);
-      if (this.journey) { this.drawJourney(ctx, this.journeyClock); this.drawEffects(ctx, t, true); }
+      if (this.journey) { this.drawCowLabels(ctx); this.drawJourney(ctx, this.journeyClock); this.drawEffects(ctx, t, true); }
       else this.drawGuides(ctx, t);
       for (const p of this.particles) if (p.progress >= 0 && this.processMatch(p.recipe.process)) this.drawParticle(ctx, p, true);
       this.drawEffects(ctx, t, true);

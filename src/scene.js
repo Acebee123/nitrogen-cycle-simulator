@@ -137,15 +137,19 @@
       this.viewTarget = this.clampCamera({ zoom: z, x: world[0] - (x - this.width / 2) / k, y: world[1] - (y - this.height / 2) / k });
     }
     resetView() { this.viewTarget = { zoom: 1, x: this.W / 2, y: this.H / 2 }; }
-    fitView(points, maxZoom = 2.8) {
-      if (!points.length) return;
+    // The camera that shows all the points in the area left free by the interface.
+    boxCam(points, maxZoom = 2.8) {
       const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
       const l = Math.min(...xs), r = Math.max(...xs), t = Math.min(...ys), b = Math.max(...ys);
-      const pad = 28, I = this.insets;
+      const pad = 28, I = this.insets || { top: 0, bottom: 0, left: 0, right: 0 };
       const aw = Math.max(80, this.width - I.left - I.right - pad * 2), ah = Math.max(80, this.height - I.top - I.bottom - pad * 2);
       const z = clamp(Math.min(aw / ((r - l + 40) * this.s), ah / ((b - t + 40) * this.s)), 1, maxZoom), k = this.s * z;
       const cx = (I.left + this.width - I.right) / 2, cy = (I.top + this.height - I.bottom) / 2;
-      this.viewTarget = this.clampCamera({ zoom: z, x: (l + r) / 2 - (cx - this.width / 2) / k, y: (t + b) / 2 - (cy - this.height / 2) / k });
+      return this.clampCamera({ zoom: z, x: (l + r) / 2 - (cx - this.width / 2) / k, y: (t + b) / 2 - (cy - this.height / 2) / k });
+    }
+    fitView(points, maxZoom = 2.8) {
+      if (!points.length) return;
+      this.viewTarget = this.boxCam(points, maxZoom);
     }
     inspect(view) {
       const L = this.L, g = this.plantScale ? this.plantScale() : 1;

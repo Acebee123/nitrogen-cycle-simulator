@@ -909,15 +909,19 @@ dialog{color:var(--text)}
       this.viewTarget = this.clampCamera({ zoom: z, x: world[0] - (x - this.width / 2) / k, y: world[1] - (y - this.height / 2) / k });
     }
     resetView() { this.viewTarget = { zoom: 1, x: this.W / 2, y: this.H / 2 }; }
-    fitView(points, maxZoom = 2.8) {
-      if (!points.length) return;
+    // The camera that shows all the points in the area left free by the interface.
+    boxCam(points, maxZoom = 2.8) {
       const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
       const l = Math.min(...xs), r = Math.max(...xs), t = Math.min(...ys), b = Math.max(...ys);
-      const pad = 28, I = this.insets;
+      const pad = 28, I = this.insets || { top: 0, bottom: 0, left: 0, right: 0 };
       const aw = Math.max(80, this.width - I.left - I.right - pad * 2), ah = Math.max(80, this.height - I.top - I.bottom - pad * 2);
       const z = clamp(Math.min(aw / ((r - l + 40) * this.s), ah / ((b - t + 40) * this.s)), 1, maxZoom), k = this.s * z;
       const cx = (I.left + this.width - I.right) / 2, cy = (I.top + this.height - I.bottom) / 2;
-      this.viewTarget = this.clampCamera({ zoom: z, x: (l + r) / 2 - (cx - this.width / 2) / k, y: (t + b) / 2 - (cy - this.height / 2) / k });
+      return this.clampCamera({ zoom: z, x: (l + r) / 2 - (cx - this.width / 2) / k, y: (t + b) / 2 - (cy - this.height / 2) / k });
+    }
+    fitView(points, maxZoom = 2.8) {
+      if (!points.length) return;
+      this.viewTarget = this.boxCam(points, maxZoom);
     }
     inspect(view) {
       const L = this.L, g = this.plantScale ? this.plantScale() : 1;
@@ -1393,9 +1397,12 @@ dialog{color:var(--text)}
   }
   P.plantScale = function () { return this.L.plantK * clamp(.7 + this.model.n.plant / 85, .74, 1.3); };
   P.plantStatus = function () { return clamp((this.model.n.plant - 8) / 42, 0, 1); };
-  P.plantSway = function () { return this.reduced ? 0 : Math.sin(this.clock * 1.1) * .018 * (1 + this.storm * 2) + Math.sin(this.clock * .63) * .01; };
-  P.plantToWorld = function (p) {
-    const g = this.plantScale(), a = this.plantSway(), x0 = this.L.plantX, y0 = this.surface(x0);
+  P.plantSway = function () {
+    const jolt = (this.plantJolt || 0) * Math.sin(this.clock * 15) * .07; // shakes when the cow tears a leaf off
+    return (this.reduced ? 0 : Math.sin(this.clock * 1.1) * .018 * (1 + this.storm * 2) + Math.sin(this.clock * .63) * .01) + jolt;
+  };
+  P.plantToWorld = function (p, sway) {
+    const g = this.plantScale(), a = sway === undefined ? this.plantSway() : sway, x0 = this.L.plantX, y0 = this.surface(x0);
     return [x0 + (p[0] * Math.cos(a) - p[1] * Math.sin(a)) * g, y0 + (p[0] * Math.sin(a) + p[1] * Math.cos(a)) * g];
   };
   P.stemWorld = function (q) { return this.plantToWorld(stemAt(q)); };
@@ -1403,8 +1410,30 @@ dialog{color:var(--text)}
     if (which === 'canopy') return this.plantToWorld([8, -170]);
     if (which === 'label') return this.plantToWorld([0, -275]);
     if (which === 'leaf') return this.plantToWorld([-40, -120]);
+    if (which === 'bite') return this.biteLeaf().centre;
     return this.plantToWorld([0, -150]);
   };
+  // Leaf geometry in the world (no wind), for the leaf the cow eats.
+  function leafShape(lf) {
+    const base = stemAt(lf.q), ang = -Math.PI / 2 + lf.side * (Math.PI / 2 - lf.up);
+    const tip = [base[0] + Math.cos(ang) * lf.len, base[1] + Math.sin(ang) * lf.len];
+    const mid = [base[0] + Math.cos(ang) * lf.len * .55, base[1] + Math.sin(ang) * lf.len * .55 - 6];
+    const dir = Math.atan2(tip[1] - mid[1], tip[0] - mid[0]) + lf.side * .192;
+    return { base, tip, mid, dir };
+  }
+  P.leafGeom = function (i, still) {
+    const lf = this.plantGeo.leaves[i], s = leafShape(lf), w = p => this.plantToWorld(p, still ? 0 : undefined);
+    const at = f => [s.tip[0] + Math.cos(s.dir) * lf.size * f, s.tip[1] + Math.sin(s.dir) * lf.size * f];
+    return { i, tip: w(s.tip), centre: w(at(.5)), bite: w(at(.22)) };
+  };
+  // The cow browses the leaf on its side of the plant that is nearest a comfortable mouth height.
+  P.biteLeafIndex = function () {
+    const g = this.plantScale(), want = 100 * this.L.cowK / g;
+    let best = 1, d0 = Infinity;
+    for (const i of [1, 3, 5]) { const s = leafShape(this.plantGeo.leaves[i]), h = -(s.tip[1] + Math.sin(s.dir) * this.plantGeo.leaves[i].size * .22), d = Math.abs(h - want); if (d < d0) { d0 = d; best = i; } }
+    return best;
+  };
+  P.biteLeaf = function (still) { return this.leafGeom(this.biteLeafIndex(), still); };
   P.plantBox = function () { const g = this.plantScale(), x = this.L.plantX, y = this.surface(x); return [x - 105 * g, y - 275 * g, x + 105 * g, y]; };
 
   function leafletPath(ctx, l) {
@@ -1437,19 +1466,27 @@ dialog{color:var(--text)}
     const glow = this.plantGlow || 0;
     ctx.save(); ctx.translate(x0, y0); ctx.scale(g, g); ctx.rotate(sway);
     const leafColor = i => { const s = clamp(status * 1.35 - (1 - i / 9) * .45 + .1, 0, 1); return mix(mix('#cdbb4f', '#8fae45', clamp(s * 2, 0, 1)), '#3e8a37', clamp(s * 1.4 - .4, 0, 1)); };
+    const rig = this.cowRig;
     const drawLeaf = (lf, back) => {
       const base = stemAt(lf.q), wind = this.reduced ? 0 : Math.sin(t * 1.6 + lf.phase) * .05 * (1 + this.storm * 2.5);
       const ang = -Math.PI / 2 + lf.side * (Math.PI / 2 - lf.up) + wind;
       const tip = [base[0] + Math.cos(ang) * lf.len, base[1] + Math.sin(ang) * lf.len];
       const mid = [base[0] + Math.cos(ang) * lf.len * .55, base[1] + Math.sin(ang) * lf.len * .55 - 6];
+      const gone = rig && rig.leafI === lf.i ? rig.leafGone : 0;
       ctx.strokeStyle = back ? '#4f7232' : '#6f9440'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+      if (gone > .985) { // bitten off: a torn stalk is all that is left
+        const e = [lerp(base[0], mid[0], .8), lerp(base[1], mid[1], .8)];
+        ctx.beginPath(); ctx.moveTo(base[0], base[1]); ctx.lineTo(e[0], e[1]); ctx.stroke();
+        ctx.fillStyle = mix(leafColor(lf.i), '#5a4a20', .35); ctx.beginPath(); ctx.moveTo(e[0] - 2, e[1] - 1); ctx.lineTo(e[0] + 3, e[1] - 4); ctx.lineTo(e[0] + 2, e[1] - 1); ctx.lineTo(e[0] + 5, e[1] + 1); ctx.lineTo(e[0], e[1] + 2); ctx.closePath(); ctx.fill();
+        return;
+      }
       ctx.beginPath(); ctx.moveTo(base[0], base[1]); ctx.quadraticCurveTo(mid[0], mid[1], tip[0], tip[1]); ctx.stroke();
       const col = back ? mix(leafColor(lf.i), '#16351a', .3) : leafColor(lf.i), droop = .32 * lf.side;
-      const dir = Math.atan2(tip[1] - mid[1], tip[0] - mid[0]);
+      const dir = Math.atan2(tip[1] - mid[1], tip[0] - mid[0]), grow = 1 - gone; // regrows after the cow has eaten it
       // two side leaflets, then the terminal leaflet
-      drawLeaflet(ctx, tip[0], tip[1], dir - lf.side * 1.05 + droop + wind, lf.size * .82, col, 1, glow);
-      drawLeaflet(ctx, tip[0], tip[1], dir + lf.side * .95 + droop + wind, lf.size * .8, mix(col, '#1c3c1d', .12), 1, glow);
-      drawLeaflet(ctx, tip[0] + Math.cos(dir) * 5, tip[1] + Math.sin(dir) * 5, dir + droop * .6 + wind * 1.2, lf.size, col, 1, glow);
+      drawLeaflet(ctx, tip[0], tip[1], dir - lf.side * 1.05 + droop + wind, lf.size * .82 * grow, col, 1, glow);
+      drawLeaflet(ctx, tip[0], tip[1], dir + lf.side * .95 + droop + wind, lf.size * .8 * grow, mix(col, '#1c3c1d', .12), 1, glow);
+      drawLeaflet(ctx, tip[0] + Math.cos(dir) * 5 * grow, tip[1] + Math.sin(dir) * 5 * grow, dir + droop * .6 + wind * 1.2, lf.size * grow, col, 1, glow);
       ctx.fillStyle = '#a7c46a'; ctx.beginPath(); ctx.arc(tip[0], tip[1], 1.8, 0, TAU); ctx.fill();
     };
     for (const lf of geo.leaves) if (lf.back) drawLeaf(lf, true);
@@ -1548,32 +1585,76 @@ dialog{color:var(--text)}
   };
 
   /* ---------- cow (drawn facing right, mirrored to face the plant) ---------- */
+  // Journey mode sets cowAnim (where to stand, how to hold the head, what is happening);
+  // cowRig turns it into smooth motion, so the cow walks rather than jumps unless a
+  // scene cut asks for a snap.
+  const ORGANS = { rumen: [-6, -112], liver: [64, -124], anus: [-116, -124] };
+  P.cowDX = function () { return this.cowRig ? this.cowRig.dx : 0; };
+  P.updateCow = function (dt) {
+    const A = this.cowAnim, rig = this.cowRig || (this.cowRig = { dx: 0, gait: 0, amp: 0, xray: 0, leafI: -1, leafGone: 0, fresh: 0, poopT: null });
+    const target = A ? A.dx || 0 : 0, before = rig.dx;
+    if (A && (A.exact || A.snap)) rig.dx = target;
+    else { const d = target - rig.dx; rig.dx += Math.sign(d) * Math.min(Math.abs(d), dt * 90); }
+    const moved = A && A.snap ? 0 : rig.dx - before, speed = dt > 0 ? Math.abs(moved) / dt : 0;
+    rig.gait -= moved / (88 * this.L.cowK) * TAU; // stepping forward (toward the head) advances the gait
+    rig.amp = A && A.snap ? 0 : rig.amp + ((this.reduced ? 0 : clamp(speed / 45, 0, 1)) - rig.amp) * (1 - Math.exp(-dt * 10));
+    rig.xray += ((A && A.xray ? 1 : 0) - rig.xray) * (1 - Math.exp(-dt * 5));
+    if (A && A.leafGone) { rig.leafI = this.biteLeafIndex(); rig.leafGone = 1; } else rig.leafGone = Math.max(0, rig.leafGone - dt * .7);
+    rig.fresh = A && A.fresh ? 1 : Math.max(0, rig.fresh - dt * .35);
+    rig.poopT = A && A.poopT !== undefined ? A.poopT : null;
+  };
   P.cowPose = function () {
-    const t = this.clock, feeding = this.activity('feeding') > .05;
+    const t = this.clock, A = this.cowAnim || {}, rig = this.cowRig || { amp: 0, gait: 0, xray: 0 }, feeding = this.activity('feeding') > .05;
     const cycle = this.reduced ? 0 : (t % 12) / 12;
-    // grazes most of the time and lifts its head to look around now and then
-    const lift = feeding ? smooth((cycle - .7) / .07) * (1 - smooth((cycle - .9) / .07)) : 1;
+    // grazes most of the time and lifts its head to look around now and then; walking lifts it too
+    const lift = Math.max(feeding ? smooth((cycle - .7) / .07) * (1 - smooth((cycle - .9) / .07)) : 1, rig.amp), jaw = A.chew !== undefined;
+    const chew = this.reduced ? 0 : Math.sin(t * (jaw ? 9.5 : 8)) * (jaw ? A.chew : lift < .5 ? 1 : .3);
     return {
-      graze: 1 - lift, chew: this.reduced ? 0 : Math.sin(t * 8) * (lift < .5 ? 1 : .3),
+      graze: 1 - lift, chew,
       tail: this.reduced ? 0 : Math.sin(t * 1.5) * .5 + Math.sin(t * .37) * .3,
       ear: this.reduced ? 0 : Math.max(0, Math.sin(t * 2.1) - .9) * 6,
-      breathe: this.reduced ? 0 : Math.sin(t * 1.4)
+      breathe: this.reduced ? 0 : Math.sin(t * 1.4),
+      gait: rig.gait, amp: rig.amp, xray: rig.xray, organ: A.organ || null, tailLift: A.tailLift || 0,
+      head: A.head || null, headW: A.headW || 0, biteHead: A.bite ? headForMouth(this.worldToCow(A.bite)) : null, biteW: A.biteW || 0,
+      mouth: Math.max(A.open || 0, jaw ? Math.max(0, chew) * .45 : 0), leaf: A.leaf || 0, bolus: A.bolus === undefined ? -1 : A.bolus
     };
   };
+  // Head angle that puts the mouth on a target: level for high leaves, nose-down for grass.
+  function headForMouth(m) {
+    const a = lerp(1.32, .1, clamp((-m[1] - 4) / 150, 0, 1));
+    return { x: m[0] - (Math.cos(a) * 62 - Math.sin(a) * 8), y: m[1] - (Math.sin(a) * 62 + Math.cos(a) * 8), a };
+  }
   function cowHead(pose) { // poll position and head angle in cow space
-    const g = pose.graze;
-    return { x: lerp(120, 136, g), y: lerp(-150, -66, g) + pose.chew * .5, a: lerp(.55, 1.32, g) };
+    const g = pose.graze; let h = { x: lerp(120, 136, g), y: lerp(-150, -66, g), a: lerp(.55, 1.32, g) };
+    if (pose.amp) h.y += Math.sin((pose.gait || 0) * 2) * 2.2 * pose.amp; // nods as it walks
+    for (const [o, w] of [[pose.head, pose.headW], [pose.biteHead, pose.biteW]]) if (o && w > 0) h = { x: lerp(h.x, o.x, w), y: lerp(h.y, o.y, w), a: lerp(h.a, o.a, w) };
+    h.y += pose.chew * .5;
+    return h;
   }
   const headPt = (h, px, py) => [h.x + Math.cos(h.a) * px - Math.sin(h.a) * py, h.y + Math.sin(h.a) * px + Math.cos(h.a) * py];
-  P.cowToWorld = function (p) { const k = this.L.cowK, x = this.L.cowX, y = this.surface(x) - 1; return [x - p[0] * k, y + p[1] * k]; };
+  // The food pipe, from the throat down the neck into the rumen (cow space).
+  const gulletPts = h => [headPt(h, 4, 14), headPt(h, -14, 19), [100, -108], [74, -114], [44, -115], [18, -114], ORGANS.rumen];
+  const GUT = [ORGANS.liver, [44, -98], [24, -78], [0, -72], [-20, -80], [-34, -70], [-50, -82], [-64, -70], [-80, -84], [-94, -74], [-104, -94], [-110, -112], ORGANS.anus];
+  function polyAt(pts, u) {
+    const seg = []; let total = 0;
+    for (let i = 1; i < pts.length; i++) { const l = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); seg.push(l); total += l; }
+    let d = clamp(u, 0, 1) * total;
+    for (let i = 0; i < seg.length; i++) { if (d <= seg[i] || i === seg.length - 1) { const f = seg[i] ? clamp(d / seg[i], 0, 1) : 0; return [lerp(pts[i][0], pts[i + 1][0], f), lerp(pts[i][1], pts[i + 1][1], f)]; } d -= seg[i]; }
+    return pts[pts.length - 1].slice();
+  }
+  P.cowToWorld = function (p) { const k = this.L.cowK, x = this.L.cowX + this.cowDX(), y = this.surface(x) - 1; return [x - p[0] * k, y + p[1] * k]; };
+  P.worldToCow = function (w) { const k = this.L.cowK, x = this.L.cowX + this.cowDX(), y = this.surface(x) - 1; return [(x - w[0]) / k, (w[1] - y) / k]; };
   P.cowPoint = function (which) {
     const h = cowHead(this.cowPose());
     if (which === 'mouth') return this.cowToWorld(headPt(h, 62, 8));
     if (which === 'back') return this.cowToWorld([-10, -162]);
     if (which === 'rear') return this.cowToWorld([-114, -86]);
+    if (ORGANS[which]) return this.cowToWorld(ORGANS[which]);
     return this.cowToWorld([0, -105]);
   };
-  P.cowBox = function () { const k = this.L.cowK, x = this.L.cowX, y = this.surface(x); return [x - 200 * k, y - 170 * k, x + 125 * k, y + 4]; };
+  P.gulletPoint = function (u) { return this.cowToWorld(polyAt(gulletPts(cowHead(this.cowPose())), u)); };
+  P.gutPoint = function (u) { return this.cowToWorld(polyAt(GUT, u)); };
+  P.cowBox = function () { const k = this.L.cowK, x = this.L.cowX + this.cowDX(), y = this.surface(x); return [x - 200 * k, y - 170 * k, x + 125 * k, y + 4]; };
 
   function cowBody(ctx) {
     ctx.beginPath(); ctx.moveTo(52, -147);
@@ -1621,20 +1702,26 @@ dialog{color:var(--text)}
   }
 
   P.drawCow = function (ctx, t) {
-    const k = this.L.cowK, x = this.L.cowX, y = this.surface(x) - 1, pose = this.cowPose(), h = cowHead(pose);
-    const black = '#22201d';
+    const k = this.L.cowK, x = this.L.cowX + this.cowDX(), y = this.surface(x) - 1, pose = this.cowPose(), h = cowHead(pose);
+    const black = '#22201d', amp = pose.amp, ph = pose.gait, swing = .26 * amp, bob = Math.sin(ph * 2) * 1.4 * amp;
+    // a walking leg swings from the hip and lifts its hoof while it moves forward
+    const leg = (lx, top, p) => { const lift = Math.max(0, -Math.cos(p)) * 7 * amp; ctx.translate(lx, top - lift); ctx.rotate(swing * Math.sin(p)); ctx.translate(-lx, -top); };
     ctx.save(); ctx.translate(x, y); ctx.scale(-k, k); ctx.lineJoin = 'round';
     const sh = ctx.createRadialGradient(-6, 1, 10, -6, 1, 135); sh.addColorStop(0, 'rgba(20,30,15,.45)'); sh.addColorStop(1, 'rgba(20,30,15,0)');
     ctx.fillStyle = sh; ctx.beginPath(); ctx.ellipse(-6, 1, 135, 11, 0, 0, TAU); ctx.fill();
     // far legs, in shade
-    for (const [fn, lx] of [[frontLeg, 60], [rearLeg, -70]]) { ctx.fillStyle = legPaint(ctx, lx, true); fn(ctx, lx); ctx.fill(); hoof(ctx, lx, true); }
-    // tail hugs the buttock and swings below
-    const tipX = -119 - Math.sin(pose.tail) * 16, tipY = -40 + Math.abs(Math.sin(pose.tail)) * 4;
+    for (const [fn, lx, top, p] of [[frontLeg, 60, -104, ph + Math.PI], [rearLeg, -70, -110, ph]]) { ctx.save(); leg(lx, top, p); ctx.fillStyle = legPaint(ctx, lx, true); fn(ctx, lx); ctx.fill(); hoof(ctx, lx, true); ctx.restore(); }
+    // tail hugs the buttock and swings below; it lifts in an arch when the cow drops dung
+    ctx.save(); ctx.translate(0, bob);
+    // raised, it arches back and away from the body in a wide curve, the tuft hanging clear
+    const sw = Math.sin(pose.tail), L = pose.tailLift, tipX = lerp(-119 - sw * 16, -178 - sw * 2, L), tipY = lerp(-40 + Math.abs(sw) * 4, -118, L);
     ctx.strokeStyle = '#ece6da'; ctx.lineWidth = 3.4; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(-108, -142); ctx.bezierCurveTo(-120, -126, -121, -90, tipX, tipY + 6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-108, -142); ctx.bezierCurveTo(lerp(-120, -120, L), lerp(-126, -166, L), lerp(-121, -166, L), lerp(-90, -160, L), tipX, tipY + 6); ctx.stroke();
     ctx.fillStyle = black; ctx.beginPath(); ctx.moveTo(tipX - 1, tipY - 6); ctx.bezierCurveTo(tipX - 7, tipY + 2, tipX - 6, tipY + 14, tipX, tipY + 18); ctx.bezierCurveTo(tipX + 6, tipY + 14, tipX + 6, tipY + 2, tipX + 1, tipY - 6); ctx.fill();
+    ctx.restore();
     // near legs (their tops tuck under the body)
-    for (const [fn, lx, patch] of [[frontLeg, 74, false], [rearLeg, -84, true]]) {
+    for (const [fn, lx, patch, top, p] of [[frontLeg, 74, false, -104, ph], [rearLeg, -84, true, -110, ph + Math.PI]]) {
+      ctx.save(); leg(lx, top, p);
       ctx.fillStyle = legPaint(ctx, lx, false); fn(ctx, lx); ctx.fill();
       ctx.save(); fn(ctx, lx); ctx.clip();
       const ao = ctx.createLinearGradient(0, -74, 0, -46); ao.addColorStop(0, 'rgba(60,50,40,.45)'); ao.addColorStop(1, 'rgba(60,50,40,0)'); ctx.fillStyle = ao; ctx.fillRect(lx - 30, -80, 60, 36);
@@ -1642,7 +1729,9 @@ dialog{color:var(--text)}
       ctx.restore();
       ctx.strokeStyle = 'rgba(70,60,50,.28)'; ctx.lineWidth = .9; fn(ctx, lx); ctx.stroke();
       hoof(ctx, lx, false);
+      ctx.restore();
     }
+    ctx.save(); ctx.translate(0, bob);
     // shared coat gradient keeps body and neck seamless
     const coat = ctx.createLinearGradient(0, -160, 0, -50); coat.addColorStop(0, '#fffdf9'); coat.addColorStop(.55, '#f4f0e8'); coat.addColorStop(1, '#cdc6b8');
     // neck from shoulder to the head
@@ -1652,6 +1741,7 @@ dialog{color:var(--text)}
     ctx.save(); neck(); ctx.clip();
     ctx.fillStyle = black; const nb = headPt(h, -14, 4); ctx.beginPath(); ctx.ellipse(nb[0], nb[1], 30, 24, h.a, 0, TAU); ctx.fill();
     const dewl = ctx.createLinearGradient(bot[0], bot[1], 96, -100); dewl.addColorStop(0, 'rgba(60,50,40,0)'); dewl.addColorStop(1, 'rgba(60,50,40,.18)'); ctx.fillStyle = dewl; ctx.fillRect(40, -170, 140, 180);
+    if (pose.xray > .02) { ctx.fillStyle = rgba('#0b1d24', .62 * pose.xray); ctx.fillRect(20, -240, 220, 240); }
     ctx.restore();
     ctx.strokeStyle = 'rgba(70,60,50,.3)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(52, -150); ctx.bezierCurveTo(78, -153, c2[0], c2[1], top[0], top[1]); ctx.moveTo(bot[0], bot[1]); ctx.bezierCurveTo(c3[0], c3[1], 106, -96, 96, -100); ctx.stroke();
     ctx.save(); ctx.translate(0, -50); ctx.scale(1, 1 + pose.breathe * .006); ctx.translate(0, 50);
@@ -1668,6 +1758,7 @@ dialog{color:var(--text)}
     ctx.strokeStyle = 'rgba(90,80,70,.2)'; ctx.lineWidth = 1.2;
     ctx.beginPath(); ctx.moveTo(-70, -148); ctx.quadraticCurveTo(-80, -118, -98, -100); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(76, -136); ctx.quadraticCurveTo(66, -108, 80, -84); ctx.stroke();
+    if (pose.xray > .02) xrayOrgans(ctx, pose, t); // see-through body: where the atom is inside the cow
     ctx.restore();
     ctx.strokeStyle = 'rgba(70,60,50,.32)'; ctx.lineWidth = 1; cowBody(ctx); ctx.stroke();
     ctx.restore();
@@ -1675,6 +1766,7 @@ dialog{color:var(--text)}
     const ug = ctx.createLinearGradient(0, -64, 0, -44); ug.addColorStop(0, '#f2c1b8'); ug.addColorStop(1, '#d99488');
     ctx.fillStyle = ug; ctx.beginPath(); ctx.moveTo(-64, -62); ctx.bezierCurveTo(-62, -44, -36, -42, -32, -60); ctx.fill();
     ctx.fillStyle = '#d78b80'; for (const tx of [-55, -41]) { ctx.beginPath(); ctx.ellipse(tx, -45, 2, 4.2, 0, 0, TAU); ctx.fill(); }
+    if (pose.xray > .02) gullet(ctx, pose, h);
     // head
     ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(h.a);
     ctx.save(); ctx.translate(4, -4); ctx.rotate(-2.25 - pose.ear * .25); // ear
@@ -1689,12 +1781,131 @@ dialog{color:var(--text)}
     ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.beginPath(); ctx.ellipse(24, 8, 14, 8, .1, 0, TAU); ctx.fill(); // cheek
     ctx.restore();
     ctx.fillStyle = '#5a3a35'; ctx.beginPath(); ctx.ellipse(65, 1.5, 1.7, 2.6, .5, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#6a4842'; ctx.lineWidth = .9; ctx.beginPath(); ctx.moveTo(54, 14 + pose.chew * .4); ctx.quadraticCurveTo(60, 16 + pose.chew * .6, 65, 13); ctx.stroke();
+    const m = pose.mouth;
+    if (m > .02) { // the jaw drops: a dark mouth, then the lower jaw swung down from its hinge
+      const ja = m * .38, f = [28 + 38 * Math.cos(ja), 12 + 38 * Math.sin(ja)];
+      ctx.fillStyle = '#3d1c1e'; ctx.beginPath(); ctx.moveTo(28, 12); ctx.lineTo(66, 11); ctx.lineTo(f[0], f[1]); ctx.closePath(); ctx.fill();
+      if (pose.leaf > .02) leafInMouth(ctx, pose.leaf, t, [64, lerp(12, f[1], .45)]);
+      ctx.save(); ctx.translate(28, 12); ctx.rotate(ja); ctx.translate(-28, -12);
+      ctx.fillStyle = '#1b1a18'; ctx.beginPath(); ctx.moveTo(28, 12); ctx.lineTo(64, 12); ctx.bezierCurveTo(68, 13, 66, 18, 60, 18.5); ctx.bezierCurveTo(52, 20, 44, 18, 38, 17.5); ctx.bezierCurveTo(32, 18, 28, 16, 28, 12); ctx.fill();
+      ctx.fillStyle = '#c98f86'; ctx.beginPath(); ctx.ellipse(60, 14.5, 6, 2.8, 0, 0, TAU); ctx.fill();
+      ctx.restore();
+    } else {
+      if (pose.leaf > .02) leafInMouth(ctx, pose.leaf, t, [64, 13]);
+      ctx.strokeStyle = '#6a4842'; ctx.lineWidth = .9; ctx.beginPath(); ctx.moveTo(54, 14 + pose.chew * .4); ctx.quadraticCurveTo(60, 16 + pose.chew * .6, 65, 13); ctx.stroke();
+    }
     ctx.fillStyle = '#f4efe6'; ctx.beginPath(); ctx.ellipse(24, -3, 4.4, 3.3, .1, 0, TAU); ctx.fill(); // eye
     ctx.fillStyle = '#120e0c'; ctx.beginPath(); ctx.ellipse(25, -3, 3.1, 2.9, .1, 0, TAU); ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.beginPath(); ctx.arc(26.2, -4.2, .9, 0, TAU); ctx.fill();
     ctx.strokeStyle = '#0d0b0a'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(24.5, -2.6, 5, 3.5, 5.7); ctx.stroke();
     ctx.restore();
+    ctx.restore();
+    ctx.restore();
+  };
+  function smoothPath(ctx, pts) {
+    ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length - 1; i++) ctx.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
+    const l = pts[pts.length - 1]; ctx.lineTo(l[0], l[1]);
+  }
+  // X-ray of the trunk: spine, ribs, rumen, true stomach, liver and intestines.
+  function xrayOrgans(ctx, pose, t) {
+    const a = pose.xray, pulse = .5 + .5 * Math.sin(t * 5), on = id => pose.organ === id ? pulse : 0;
+    ctx.fillStyle = rgba('#0b1d24', .62 * a); ctx.fillRect(-140, -180, 300, 150);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = rgba('#d6eef7', .13 * a); ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-108, -140); ctx.bezierCurveTo(-60, -150, 10, -147, 76, -146); ctx.stroke();
+    ctx.lineWidth = 2; for (let i = 0; i < 8; i++) { const rx = 62 - i * 10; ctx.beginPath(); ctx.moveTo(rx, -146); ctx.quadraticCurveTo(rx - 12, -112, rx - 4, -76 + i * 1.5); ctx.stroke(); }
+    const organ = (path, fill, edge, glow) => { path(); ctx.fillStyle = rgba(fill, (.36 + glow * .3) * a); ctx.fill(); ctx.strokeStyle = rgba(edge, (.7 + glow * .3) * a); ctx.lineWidth = 1.5 + glow * 1.5; ctx.stroke(); };
+    // intestines wind back to the tail end
+    const gl = on('gut'); smoothPath(ctx, [[40, -84]].concat(GUT.slice(2)));
+    ctx.strokeStyle = rgba('#f0a6a6', (.5 + gl * .4) * a); ctx.lineWidth = 8 + gl * 2; ctx.stroke();
+    ctx.strokeStyle = rgba('#ffd9d0', (.45 + gl * .4) * a); ctx.lineWidth = 2.4; ctx.stroke();
+    // the rumen: a huge fermenting stomach, with plant matter churning inside
+    const gr = on('rumen');
+    organ(() => { ctx.beginPath(); ctx.ellipse(ORGANS.rumen[0], ORGANS.rumen[1], 44, 30, -.08, 0, TAU); }, '#8fbf5a', '#d4f5a0', gr);
+    ctx.strokeStyle = rgba('#e9f7b0', .5 * a); ctx.lineWidth = 2;
+    for (let i = 0; i < 6; i++) { const q = t * .7 + i * 1.05, cx = ORGANS.rumen[0] + Math.cos(q) * 24, cy = ORGANS.rumen[1] + Math.sin(q) * 14; ctx.beginPath(); ctx.arc(cx, cy, 5, q, q + 2); ctx.stroke(); }
+    organ(() => { ctx.beginPath(); ctx.ellipse(34, -88, 16, 9, .35, 0, TAU); }, '#e7a07a', '#ffd0b0', gr * .6);
+    organ(() => { ctx.beginPath(); ctx.ellipse(ORGANS.liver[0], ORGANS.liver[1], 12, 18, .35, 0, TAU); }, '#b8434a', '#ff9a9a', on('liver'));
+  }
+  function gullet(ctx, pose, h) {
+    const a = pose.xray, pts = gulletPts(h);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    smoothPath(ctx, pts); ctx.strokeStyle = rgba('#ffd9b8', .45 * a); ctx.lineWidth = 6; ctx.stroke();
+    ctx.strokeStyle = rgba('#7a3b3b', .5 * a); ctx.lineWidth = 2.6; ctx.stroke();
+    if (pose.bolus >= 0 && pose.bolus <= 1) { // the chewed mouthful sliding down
+      const [bx, by] = polyAt(pts, pose.bolus), g = ctx.createRadialGradient(bx, by, 0, bx, by, 12);
+      g.addColorStop(0, 'rgba(216,245,154,.9)'); g.addColorStop(1, 'rgba(159,209,106,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, 12, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#7fb24c'; ctx.beginPath(); ctx.ellipse(bx, by, 6, 4.5, 0, 0, TAU); ctx.fill();
+    }
+  }
+  function leafInMouth(ctx, amount, t, at) {
+    const s = 18 * amount, wob = Math.sin(t * 9.5) * .16;
+    ctx.save(); ctx.translate(at[0] - 3, at[1]); ctx.rotate(.4 + wob);
+    ctx.strokeStyle = '#6f9440'; ctx.lineWidth = 1.4; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(s * .45, 0); ctx.stroke();
+    for (const [ang, f] of [[-.75, .8], [.8, .78], [0, 1]]) {
+      ctx.save(); ctx.translate(s * .45, 0); ctx.rotate(ang);
+      const l = s * f, w = l * .38, g = ctx.createLinearGradient(0, -w, 0, w); g.addColorStop(0, '#a5d66e'); g.addColorStop(1, '#3e7a2c');
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.bezierCurveTo(l * .15, -w, l * .7, -w, l, 0); ctx.bezierCurveTo(l * .7, w, l * .15, w, 0, 0); ctx.fillStyle = g; ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+  // Names the organ our atom is in, drawn upright in world space.
+  P.drawCowLabels = function (ctx) {
+    const rig = this.cowRig, A = this.cowAnim; if (!rig || rig.xray < .35 || !A || !A.organ) return;
+    const name = { rumen: 'stomach (rumen)', liver: 'liver', gut: 'intestine' }[A.organ], at = A.organ === 'gut' ? this.gutPoint(.55) : this.cowPoint(A.organ);
+    const px = this.s * this.camera.zoom, k = this.L.cowK;
+    // below the organ, so it never sits on the atom's formula tag (which floats above the atom)
+    ctx.save(); ctx.translate(at[0], at[1] + ({ rumen: 44, liver: 32, gut: -26 }[A.organ]) * k); ctx.scale(1 / px, 1 / px); ctx.globalAlpha = clamp((rig.xray - .35) * 2, 0, 1);
+    ctx.font = '700 12px system-ui, sans-serif'; const w = ctx.measureText(name).width + 18;
+    ctx.fillStyle = 'rgba(8,22,26,.82)'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-w / 2, -11, w, 22, 11) : ctx.rect(-w / 2, -11, w, 22); ctx.fill();
+    ctx.strokeStyle = 'rgba(180,235,255,.6)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#e8f8ff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(name, 0, .5);
+    ctx.restore();
+  };
+
+  /* ---------- dung: the drop, the splat and the fresh pat ---------- */
+  const DROPS = [{ s: 1.6, r: 12, dx: 0 }, { s: 2.2, r: 10, dx: 6 }, { s: 2.75, r: 8, dx: -5 }];
+  // Pieces of dung at time T of the drop; also used to carry the atom down with the first one.
+  P.dungDrop = function (T) {
+    const k = this.L.cowK, px = this.L.dungX - 6, ay = this.cowPoint('anus')[1], base = this.surface(px) - 5 * k, g = 1500 * k, out = [];
+    let stack = 0;
+    for (const d of DROPS) {
+      const e = T - d.s, r = d.r * k, x = px + d.dx * k; if (e < 0) break;
+      const ex = .42, y0 = ay + r * 1.3, rest = base - stack - r * .5, tl = ex + Math.sqrt(Math.max(0, 2 * (rest - y0) / g));
+      if (e < ex) { const len = r * 2.6 * e / ex; out.push({ x, y: ay + len / 2 - r * .2, rx: r * .72, ry: len / 2 + r * .25, state: 'hang', r }); }
+      else if (e < tl) { const f = e - ex; out.push({ x, y: y0 + .5 * g * f * f, rx: r * .78, ry: r * 1.2, state: 'fall', r }); }
+      else { const f = e - tl, wob = Math.exp(-f * 7) * Math.cos(f * 28); out.push({ x, y: rest, rx: r * (1.35 + .3 * wob), ry: r * (.58 - .18 * wob), state: 'land', since: f, r }); }
+      stack += r * .75;
+    }
+    return out;
+  };
+  P.drawFreshDung = function (ctx, t) {
+    const rig = this.cowRig; if (!rig || (rig.poopT === null && rig.fresh <= .01)) return;
+    const pieces = this.dungDrop(rig.poopT !== null ? rig.poopT : 99), k = this.L.cowK;
+    ctx.save(); ctx.globalAlpha = rig.poopT !== null ? 1 : rig.fresh;
+    for (const p of pieces) {
+      const g = ctx.createRadialGradient(p.x - p.rx * .3, p.y - p.ry * .5, 1, p.x, p.y, Math.max(p.rx, p.ry) * 1.2);
+      g.addColorStop(0, '#7a5534'); g.addColorStop(.6, '#4f3520'); g.addColorStop(1, '#2e1f12'); ctx.fillStyle = g;
+      ctx.beginPath(); ctx.ellipse(p.x, p.y, p.rx, p.ry, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(255,235,200,.28)'; ctx.beginPath(); ctx.ellipse(p.x - p.rx * .3, p.y - p.ry * .45, p.rx * .35, p.ry * .18, -.2, 0, TAU); ctx.fill(); // wet shine
+      if (p.state === 'land' && p.since < .5) { // splat
+        const f = p.since, fade = 1 - f / .5; ctx.fillStyle = rgba('#4a3220', fade);
+        for (let i = 0; i < 7; i++) { const a = -Math.PI * (.12 + .76 * i / 6), v = (70 + (i % 3) * 22) * k; ctx.beginPath(); ctx.arc(p.x + Math.cos(a) * v * f, p.y + Math.sin(a) * v * f + 260 * k * f * f, 1.7 * k, 0, TAU); ctx.fill(); }
+      }
+    }
+    // a fresh pat steams and draws a couple of flies
+    const landed = pieces.filter(p => p.state === 'land'), top = landed.length ? Math.min(...landed.map(p => p.y - p.ry)) : null;
+    if (top !== null && !this.reduced) {
+      const px = this.L.dungX - 6;
+      for (let i = 0; i < 3; i++) { const u = (t * .45 + i / 3) % 1, sx = px + (i - 1) * 6 * k + Math.sin(t * 2 + i) * 3 * k * u, sy = top - 4 - u * 30 * k; ctx.fillStyle = rgba('#f2efe6', Math.sin(u * Math.PI) * .22); ctx.beginPath(); ctx.arc(sx, sy, (3 + u * 5) * k, 0, TAU); ctx.fill(); }
+      if (landed.length === DROPS.length) for (let i = 0; i < 2; i++) {
+        const a = t * (3.2 + i * 1.3) + i * 2, fx = px + Math.cos(a) * 15 * k, fy = top - 12 * k + Math.sin(a * 1.4) * 6 * k, flap = Math.abs(Math.sin(t * 70 + i));
+        ctx.fillStyle = 'rgba(230,240,255,.6)'; ctx.beginPath(); ctx.ellipse(fx - 1.2 * k, fy - 1.4 * k, 1.6 * k, .8 * k * flap + .2, -.5, 0, TAU); ctx.ellipse(fx + 1.2 * k, fy - 1.4 * k, 1.6 * k, .8 * k * flap + .2, .5, 0, TAU); ctx.fill();
+        ctx.fillStyle = '#141414'; ctx.beginPath(); ctx.arc(fx, fy, 1.3 * k, 0, TAU); ctx.fill();
+      }
+    }
     ctx.restore();
   };
 
@@ -2239,6 +2450,9 @@ dialog{color:var(--text)}
     this.focusFade += ((this.selected || this.journey ? 1 : 0) - this.focusFade) * (1 - Math.exp(-dt * 6));
     this.flash = Math.max(0, this.flash - dt * 2.6); this.shake = Math.max(0, this.shake - dt);
     this.plantGlow = Math.max(0, this.plantGlow - dt * .5);
+    this.plantJolt = Math.max(0, (this.plantJolt || 0) - dt * 1.4);
+    if (!this.cowStamp) this.updateCow(dt); // journey mode may already have moved the cow this frame
+    this.cowStamp = false;
     if (this.inputPulse) this.inputPulse.remaining = Math.max(0, this.inputPulse.remaining - dt);
     if (this.bolt) { this.bolt.t += dt; if (this.bolt.t > this.bolt.life) this.bolt = null; }
     this.journeyClock = (this.journeyClock || 0) + dt;
@@ -2291,9 +2505,13 @@ dialog{color:var(--text)}
     this.drawIons(ctx, ['ammonium', 'nitrite', 'nitrate', 'leached']);
     if (this.inputPulse && this.inputPulse.remaining > 0) this.drawInputPulse(ctx);
     this.drawLitter(ctx, t);
-    this.drawCow(ctx, t);
+    // the cow passes in front of the plant when it walks up to browse it
+    const browsing = this.L.cowX + this.cowDX() - 205 * this.L.cowK < this.L.plantX + 118 * this.plantScale() + 24;
+    if (!browsing) this.drawCow(ctx, t);
     this.drawPlant(ctx, t);
+    if (browsing) this.drawCow(ctx, t);
     this.drawGrass(ctx, t, false);
+    this.drawFreshDung(ctx, t); // on top of the grass, so the drop and the fresh pat are easy to see
     this.drawFallingLeaves(ctx);
     if (!this.journey) for (const p of this.particles) if (p.progress >= 0 && !(this.focusFade > .05 && this.processMatch(p.recipe.process))) this.drawParticle(ctx, p, false);
     this.drawEffects(ctx, t, false);
@@ -2307,7 +2525,7 @@ dialog{color:var(--text)}
     if (this.focusFade > .01) {
       this.drawSpotlight(ctx, wt, t);
       ctx.setTransform(...wt);
-      if (this.journey) { this.drawJourney(ctx, this.journeyClock); this.drawEffects(ctx, t, true); }
+      if (this.journey) { this.drawCowLabels(ctx); this.drawJourney(ctx, this.journeyClock); this.drawEffects(ctx, t, true); }
       else this.drawGuides(ctx, t);
       for (const p of this.particles) if (p.progress >= 0 && this.processMatch(p.recipe.process)) this.drawParticle(ctx, p, true);
       this.drawEffects(ctx, t, true);
@@ -2467,7 +2685,7 @@ dialog{color:var(--text)}
   };
   S.assim = {
     frame: [140, 125], title: 'Assimilation', who: ['plant'], needs: ['light'], in: 'NO₃⁻', out: 'Protein N', outAt: 5.4, backdrop: 'leaf', duration: 6.6,
-    pos: sc => sc.plantPoint('leaf'),
+    pos: sc => sc.plantPoint('bite'), // the leaf the cow will eat
     via: (sc, from, to) => [from, sc.rootToWorld([0, 18]), sc.stemWorld(0.1), sc.stemWorld(0.35), to],
     atoms: { a: 'N*', o1: 'O', o2: 'O', o3: 'O', h1: 'H', h2: 'H', h3: 'H', h4: 'H', c1: 'C', c2: 'C', o4: 'O', o5: 'O', b1: 'AA', b2: 'AA', b3: 'AA' },
     frames: [
@@ -2484,8 +2702,8 @@ dialog{color:var(--text)}
   const links = names => names.slice(1).map((n, i) => [names[i], n, 1]);
   S.feed = {
     frame: [185, 125], title: 'Feeding', who: ['cow'], needs: [], in: 'Protein N', out: 'Protein N', outAt: 4.4, backdrop: 'gut', duration: 5.6,
-    pos: sc => sc.cowPoint('belly'),
-    via: (sc, from, to) => { const m = sc.cowPoint('mouth'); return [from, [lerp(from[0], m[0], .5), Math.min(from[1], m[1]) - 50], m, to]; },
+    pos: sc => sc.cowPoint('rumen'),
+    script: 'eat', cow: { at: 'eat', head: 'chew', chew: .75, leafGone: 1, xray: 1, organ: 'rumen' },
     atoms: { p1: 'AA', p2: 'AA', p3: 'AA*', p4: 'AA', p5: 'AA', q1: 'AB', q2: 'AB', q3: 'AB' },
     frames: [
       { t: 0, at: chain(['p1', 'p2', 'p3', 'p4', 'p5'], 60, 95, 30, 6), bonds: links(['p1', 'p2', 'p3', 'p4', 'p5']), step: 0, labels: [['plant protein', 120, 135, 'Protein N']] },
@@ -2493,13 +2711,13 @@ dialog{color:var(--text)}
       { t: 2.9, at: { p1: [110, 46], p2: [140, 142], p3: [166, 92], p4: [206, 44], p5: [232, 140] }, bonds: [], step: 2, flash: [166, 92], labels: [['amino acids', 166, 170, 'Protein N']] },
       { t: 4.4, at: at(chain(['q1', 'p3', 'q2', 'p1', 'q3'], 104, 95, 30, 6), { p2: [300, 170], p4: [300, 20], p5: [20, 170] }), bonds: links(['q1', 'p3', 'q2', 'p1', 'q3']), step: 3, labels: [['cow protein', 164, 135, 'Protein N']] }
     ],
-    captions: ['The cow eats the bean leaves.', 'In its gut the plant protein is digested…', '…into amino acids, which pass into the blood.', 'They are rebuilt into cow protein: muscle and milk.'],
+    captions: ['The bean leaf reaches the cow’s stomach.', 'There the plant protein is digested…', '…into amino acids, which pass into the blood.', 'They are rebuilt into cow protein: muscle and milk.'],
     eq: ['plant protein', '→', 'amino acids', '→', 'cow protein'], hl: [0, 0, 2, 4], detail: 'Digestion breaks peptide bonds (hydrolysis); the body joins amino acids into new proteins.'
   };
   S.waste = {
     frame: [125, 90], title: 'Waste', who: ['cow'], needs: [], in: 'Protein N', out: 'Organic N', outAt: 2.8, backdrop: 'gut', duration: 5.2,
-    pos: sc => sc.point('animal-detritus'),
-    via: (sc, from, to) => [from, sc.cowPoint('rear'), to],
+    pos: sc => sc.cowPoint('liver'),
+    script: 'later', cow: { at: 'dung', leafGone: 1, xray: 1, organ: 'liver' },
     atoms: { a: 'N*', h1: 'H', h2: 'H', c1: 'C', c2: 'C', o4: 'O', o5: 'O', c3: 'C', o6: 'O', b: 'N', h3: 'H', h4: 'H' },
     frames: [
       { t: 0, at: { a: [90, 95], h1: [76, 83], h2: [76, 108], c1: [114, 95], c2: [138, 95], o4: [154, 80], o5: [156, 110] }, bonds: [['a', 'h1', 1], ['a', 'h2', 1], ['a', 'c1', 1], ['c1', 'c2', 1], ['c2', 'o4', 2], ['c2', 'o5', 1]], step: 0, labels: [['amino acid', 115, 140, 'Protein N']] },
@@ -2507,13 +2725,13 @@ dialog{color:var(--text)}
       { t: 2.8, at: UREA(175, 98, 'c3', 'o6', 'a', ['h1', 'h2'], 'b', ['h3', 'h4']), bonds: [['c3', 'o6', 2], ['c3', 'a', 1], ['c3', 'b', 1], ['a', 'h1', 1], ['a', 'h2', 1], ['b', 'h3', 1], ['b', 'h4', 1]], step: 2, labels: [['urea  CO(NH₂)₂', 175, 156, 'Organic N']] },
       { t: 4.2, at: UREA(175, 128, 'c3', 'o6', 'a', ['h1', 'h2'], 'b', ['h3', 'h4']), bonds: [['c3', 'o6', 2], ['c3', 'a', 1], ['c3', 'b', 1], ['a', 'h1', 1], ['a', 'h2', 1], ['b', 'h3', 1], ['b', 'h4', 1]], step: 3, labels: [['in urine & dung ↓', 175, 40, 'Organic N']] }
     ],
-    captions: ['The cow breaks down amino acids it does not need.', 'The nitrogen group, –NH₂, is removed…', '…and turned into urea, CO(NH₂)₂, in the liver.', 'Urea (in urine) and undigested matter (in dung) fall onto the soil.'],
+    captions: ['The cow breaks down amino acids it does not need.', 'The nitrogen group, –NH₂, is removed…', '…and turned into urea, CO(NH₂)₂, in the liver.', 'Urea (in urine) and undigested matter (in dung) must leave the body.'],
     eq: ['amino acids', '→', 'urea', '+', 'dung'], hl: [0, 0, 2, 4], detail: 'Amino acids → NH₃ → urea (urea cycle, liver). Dung also carries organic nitrogen.'
   };
   S.decomp = {
     frame: [110, 85], title: 'Decomposition', who: ['decomposers'], needs: ['microbes', 'water'], in: 'Organic N', out: 'NH₄⁺', outAt: 4.2, backdrop: 'soil', duration: 5.4,
     pos: sc => sc.microbeLocation('decomposers'),
-    via: (sc, from, to) => [from, to],
+    script: 'poop', cow: { at: 'dung', leafGone: 1, fresh: 1 },
     atoms: { c3: 'C', o6: 'O', a: 'N*', h1: 'H', h2: 'H', b: 'N', h3: 'H', h4: 'H', ow: 'O', owa: 'H', owb: 'H', h5: 'H' },
     frames: [
       { t: 0, at: UREA(105, 100, 'c3', 'o6', 'a', ['h1', 'h2'], 'b', ['h3', 'h4']), bonds: [['c3', 'o6', 2], ['c3', 'a', 1], ['c3', 'b', 1], ['a', 'h1', 1], ['a', 'h2', 1], ['b', 'h3', 1], ['b', 'h4', 1]], step: 0, labels: [['urea', 105, 156, 'Organic N']] },
@@ -2521,11 +2739,12 @@ dialog{color:var(--text)}
       { t: 2.7, at: { c3: [250, 46], o6: [226, 46], ow: [274, 46], a: [128, 112], h1: [111, 102], h2: [126, 130], owa: [140, 98], b: [196, 112], h3: [213, 102], h4: [198, 130], owb: [184, 98] }, bonds: [['c3', 'o6', 2], ['c3', 'ow', 2], ['a', 'h1', 1], ['a', 'h2', 1], ['a', 'owa', 1], ['b', 'h3', 1], ['b', 'h4', 1], ['b', 'owb', 1]], step: 2, flash: [160, 100], labels: [['CO₂', 250, 72, 'H'], ['NH₃', 128, 150, 'NH₄⁺'], ['NH₃', 196, 150, 'NH₄⁺']] },
       { t: 4.2, at: at(NH4(128, 104, 'a', ['h1', 'owa', 'h2', 'h5']), { b: [286, 150], h3: [302, 142], h4: [286, 167], owb: [272, 138], c3: [300, 30], o6: [276, 30], ow: [320, 30] }), bonds: [...bondsTo('a', ['h1', 'owa', 'h2', 'h5']), ['b', 'h3', 1], ['b', 'h4', 1], ['b', 'owb', 1], ['c3', 'o6', 2], ['c3', 'ow', 2]], charges: { a: '+' }, step: 3, labels: [['NH₄⁺', 128, 146, 'NH₄⁺']] }
     ],
-    captions: ['Bacteria and fungi feed on dung and urine.', 'The enzyme urease splits urea using water…', '…releasing ammonia, NH₃, and carbon dioxide.', 'In moist soil NH₃ gains H⁺ → ammonium, NH₄⁺. This is ammonification.'],
+    captions: ['Bacteria and fungi feed on the fresh dung and urine.', 'The enzyme urease splits urea using water…', '…releasing ammonia, NH₃, and carbon dioxide.', 'In moist soil NH₃ gains H⁺ → ammonium, NH₄⁺. This is ammonification.'],
     eq: ['urea', '→', 'NH₃', '→', 'NH₄⁺'], hl: [0, 0, 2, 4], detail: 'CO(NH₂)₂ + H₂O → 2NH₃ + CO₂ (urease);  NH₃ + H⁺ → NH₄⁺'
   };
   S.denit = {
     frame: [140, 115], title: 'Denitrification', who: ['denitrifiers'], needs: ['waterlogged', 'microbes'], in: 'NO₃⁻', out: 'N₂', outAt: 4.1, backdrop: 'wet', duration: 6.2, wet: true,
+    cow: { at: 'dung', leafGone: 1, fresh: 1 },
     pos: sc => sc.microbeLocation('denitrifiers'),
     via: (sc, from, to) => [from, sc.point('ammonium'), sc.microbeLocation('nitrosomonas'), sc.point('nitrite'), sc.microbeLocation('nitrobacter'), sc.point('nitrate'), to],
     stages: [[2, 'NO₂⁻'], [4, 'NO₃⁻']], transit: 'On the way it is nitrified again: NH₄⁺ → NO₂⁻ → NO₃⁻.',
@@ -2542,6 +2761,7 @@ dialog{color:var(--text)}
   };
   S.return = {
     frame: [250, 170], title: 'Back to the air', who: [], needs: [], in: 'N₂', out: 'N₂', outAt: 0, backdrop: 'air', duration: 5, finale: true,
+    cow: { at: 'dung', leafGone: 1, fresh: 1 },
     pos: sc => [sc.microbeLocation('denitrifiers')[0] - sc.W * 0.2, sc.L.G * 0.4],
     via: (sc, from, to) => { const x = from[0]; return [from, [x, sc.surface(x) - 4], [x - 20, sc.L.G * 0.6], to]; },
     atoms: S.air.atoms, frames: S.air.frames.map((f, i) => ({ ...f, step: Math.min(i, 1), labels: i === 1 ? [['✓ Cycle complete', 160, 22, 'N₂']] : f.labels })),
@@ -2643,6 +2863,8 @@ dialog{color:var(--text)}
     AA: { r: 10, c: '#7dcf5a', t: '' }, AB: { r: 10, c: '#e39a8e', t: '' }
   };
   const LENS = { air: 'In the air', fix: 'Inside a root nodule', nit1: 'Inside Nitrosomonas', nit2: 'Inside Nitrobacter', abs: 'At a root hair', assim: 'Inside a leaf cell', feed: 'In the cow’s gut', waste: 'In the cow’s liver', decomp: 'Decomposers at work', denit: 'Inside Stutzerimonas', return: 'In the air', bolt: 'Inside a lightning bolt', rain: 'In a raindrop', factory: 'In the factory reactor', pellet: 'Pellet in soil water', leach: 'Soil water draining', river: 'In the river' };
+  // Cow head poses in cow space (see art.js): head up while walking, relaxed while chewing.
+  const WALK = { x: 120, y: -150, a: .55 }, CHEW = { x: 126, y: -138, a: .8 };
   function frameState(st, T) {
     const F = st.frames; let i = 0;
     while (i < F.length - 1 && T >= F[i + 1].t - Math.min(F[i + 1].t - F[i].t, 1.2)) i++;
@@ -2870,7 +3092,7 @@ dialog{color:var(--text)}
     station(i = this.index) { return S[this.path[i]]; }
     branchHere() { const id = this.path[this.index]; return Object.entries(BRANCHES).filter(([, b]) => b.from === id && this.path.indexOf(b.stations[0]) === -1).map(([k, b]) => ({ id: k, ...b })); }
     start() { this.active = true; this.path = MAIN.slice(); this.lensIn = 0; this.goTo(0, true); }
-    stop() { this.active = false; this.phase = 'idle'; this.scene.journey = null; this.scene.resetView(); }
+    stop() { this.active = false; this.phase = 'idle'; this.dark = 0; this.scene.journey = null; this.scene.cowAnim = null; this.scene.resetView(); }
     takeBranch(id) {
       const b = BRANCHES[id]; if (!b) return;
       const from = this.path.indexOf(b.from), rejoin = MAIN.indexOf(b.rejoin);
@@ -2886,6 +3108,12 @@ dialog{color:var(--text)}
       const st = this.station(), prevSt = this.index > 0 ? this.station(this.index - 1) : null, to = st.pos(sc);
       const jump = prevSt && prevSt.dead; // the atom left the field: follow another nitrate
       if (instant || !prevSt) { this.arrive(); return; }
+      if (st.script) { // the cow carries the atom: a short scripted scene instead of a glide
+        this.travel = { plan: this.planScript(st), s: 0, t: 0, cam0: { ...sc.camera } };
+        this.phase = 'travel'; this.compound = prevSt.out; this.visual = { wet: !!st.wet, storm: false };
+        if (this.onChange) this.onChange('travel');
+        return;
+      }
       const start = jump ? sc.point('nitrate') : prevSt.pos(sc);
       const wps = st.via ? st.via(sc, start, to) : [start, [lerp(start[0], to[0], .5), Math.min(start[1], to[1]) - 30], to];
       const path = sc.buildPath(wps);
@@ -2897,8 +3125,11 @@ dialog{color:var(--text)}
       if (this.onChange) this.onChange('travel');
     }
     arrive() {
-      const sc = this.scene, st = this.station();
-      this.phase = 'station'; this.animT = 0; this.outDone = false; this.compound = st.in; this.travel = null; this.arriveT = 0;
+      const sc = this.scene, st = this.station(), tr = this.travel;
+      // skipping the "hours later" cut: the cow is already where the next scene needs it
+      if (tr && tr.plan && tr.plan.kind === 'later' && !tr.cut) { sc.cowAnim = { ...this.cowFor(st), snap: true }; sc.updateCow(0); }
+      this.phase = 'station'; this.animT = 0; this.outDone = false; this.compound = st.in; this.travel = null; this.arriveT = 0; this.travelCaption = null; this.dark = 0;
+      sc.cowAnim = this.cowFor(st);
       this.visual = { wet: !!st.wet, storm: !!st.storm };
       const [px, py] = st.pos(sc); if (sc.effects) sc.effects.push({ type: 'ripple', x: px, y: py, t: 0, dur: 1.4, color: '#ffd65a', bright: true });
       if (st.lightning && sc.lightning) sc.lightning();
@@ -2941,12 +3172,109 @@ dialog{color:var(--text)}
       if (sy < I.top + my) y -= (I.top + my - sy) / k; else if (sy > H - I.bottom - my) y += (sy - (H - I.bottom - my)) / k;
       sc.viewTarget = sc.clampCamera({ zoom: z, x, y });
     }
+    /* ----- the cow: where it stands at each station, and its three short scenes ----- */
+    cowGeo() {
+      const sc = this.scene, L = sc.L, k = L.cowK, leaf = sc.biteLeaf(true);
+      // eat: mouth reaches the leaf; dung: the cow stands with its tail end over the dung pile
+      return { dxEat: leaf.bite[0] + 172 * k - L.cowX, dxDung: L.dungX - 6 - 116 * k - L.cowX };
+    }
+    cowFor(st) {
+      const c = st && st.cow; if (!c) return { dx: 0 };
+      const g = this.cowGeo(), A = { dx: c.at === 'eat' ? g.dxEat : c.at === 'dung' ? g.dxDung : 0, leafGone: !!c.leafGone, fresh: !!c.fresh, xray: !!c.xray, organ: c.organ || null };
+      if (c.head === 'chew') { A.head = CHEW; A.headW = 1; }
+      if (c.chew !== undefined) A.chew = c.chew;
+      return A;
+    }
+    stationReveal(st, pos) {
+      const sc = this.scene, out = [[...st.pos(sc), 120], [pos[0], pos[1], 70]];
+      if (st.cow && st.cow.xray) { const k = sc.L.cowK; out.push([...sc.cowToWorld([50, -110]), 150 * k], [...sc.cowToWorld([-70, -104]), 150 * k], [...sc.cowPoint('mouth'), 80 * k]); }
+      return out;
+    }
+    planScript(st) {
+      const rig = this.scene.cowRig || { dx: 0 }, g = this.cowGeo();
+      if (st.script === 'eat') { const dx0 = rig.dx, walk = clamp(Math.abs(g.dxEat - dx0) / 100, .8, 3.8), reach = .3 + walk - .15, bite = reach + .8; return { kind: 'eat', dx0, walk, reach, bite, dur: bite + 3.1 }; }
+      if (st.script === 'later') return { kind: 'later', cutAt: .75, dur: 2.7 };
+      return { kind: 'poop', dur: 5.4 };
+    }
+    // Runs one frame of a cow scene: poses the cow, then places the atom and the camera.
+    runScript(st, tr, dt) {
+      const sc = this.scene, p = tr.plan, s = tr.s, k = sc.L.cowK, g = this.cowGeo();
+      const lerpCam = (a, b, u) => ({ zoom: lerp(a.zoom, b.zoom, u), x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u) });
+      const pose = A => { sc.cowAnim = A; sc.updateCow(dt); sc.cowStamp = true; };
+      const settle = (cam, from, len) => { const u = ease(clamp((s - from) / len, 0, 1)); return u > 0 ? lerpCam(cam, this.stationCam(st).cam, u) : cam; };
+      if (p.kind === 'eat') {
+        const leaf = sc.biteLeaf(), after = s - p.bite;
+        const A = { dx: lerp(p.dx0, g.dxEat, ease(clamp((s - .3) / p.walk, 0, 1))), exact: true, head: WALK, headW: ease(clamp(s / .45, 0, 1)) };
+        if (s >= p.reach) { // stretch the neck out to the leaf, open wide… and snap shut
+          A.bite = leaf.bite;
+          A.biteW = after < 0 ? ease(clamp((s - p.reach) / .7, 0, 1)) : 1 - ease(clamp((after - .1) / .6, 0, 1));
+          A.open = after < 0 ? ease(clamp((s - p.reach - .3) / .4, 0, 1)) : 1 - clamp(after / .1, 0, 1);
+        }
+        if (after >= 0) {
+          A.head = CHEW; A.headW = 1; A.leafGone = true;
+          A.leaf = 1 - clamp((after - .6) / 1.3, 0, 1);
+          A.chew = clamp((after - .35) / .3, 0, 1) * .9;
+          if (after > 1.75 && after < 2.85) A.bolus = (after - 1.75) / 1.1;
+          A.xray = after > 1.4; A.organ = after > 2.7 ? 'rumen' : null;
+          if (!tr.bitten) { tr.bitten = true; sc.plantJolt = 1; if (sc.effects) sc.effects.push({ type: 'burst', x: leaf.bite[0], y: leaf.bite[1], color: '#9fd16a', t: 0, dur: .7, seed: 3, bright: true }); }
+        }
+        pose(A);
+        const mouth = sc.cowPoint('mouth'), box = sc.cowBox(), lc = leaf.centre;
+        let pos = lc;
+        if (after >= 0 && after < 1.75) pos = [lerp(lc[0], mouth[0], ease(clamp(after / .25, 0, 1))), lerp(lc[1], mouth[1], ease(clamp(after / .25, 0, 1)))];
+        else if (after >= 1.75 && after < 2.85) pos = sc.gulletPoint(A.bolus);
+        else if (after >= 2.85) pos = sc.cowPoint('rumen');
+        const walkCam = sc.boxCam([[box[0], box[1]], [box[2], box[3]], [lc[0] - 50, lc[1] - 50], [lc[0] + 30, lc[1] + 40]], 2.3);
+        const biteCam = sc.boxCam([[lc[0] - 90, lc[1] - 80], [mouth[0] + 150 * k, mouth[1] + 80]], 3);
+        const cowCam = sc.boxCam([[box[0], box[1] - 10], [box[2], box[3]]], 2.4);
+        let cam = lerpCam(lerpCam(walkCam, biteCam, ease(clamp((s - p.reach + .4) / .8, 0, 1))), cowCam, ease(clamp((after - 1.4) / .9, 0, 1)));
+        cam = settle(cam, p.dur - .8, .8);
+        const caption = s < p.reach - .3 ? 'The cow walks over to the bean plant…' : after < 1.2 ? 'It bites off a leaf — our nitrogen atom is in the leaf’s protein.' : 'Chew… swallow! The leaf goes down to the cow’s stomach.';
+        return { pos, cam, caption, reveal: [[...sc.cowToWorld([50, -110]), 160 * k], [...sc.cowToWorld([-70, -104]), 150 * k], [...mouth, 110 * k], [lc[0], lc[1], 110], [pos[0], pos[1], 70]] };
+      }
+      if (p.kind === 'later') {
+        const prev = S[this.path[this.index - 1]] || S.feed;
+        if (s < p.cutAt) pose(this.cowFor(prev));
+        else if (!tr.cut) { // in the dark: the cow wanders back to its spot by the dung pile
+          tr.cut = true; pose({ ...this.cowFor(st), snap: true });
+          const cam = this.stationCam(st).cam; sc.camera = { ...cam }; tr.cam0 = { ...cam };
+        } else pose(this.cowFor(st));
+        this.dark = s < p.cutAt ? ease(s / p.cutAt) : s < 1.6 ? 1 : 1 - ease(clamp((s - 1.6) / 1.05, 0, 1));
+        const pos = s < p.cutAt ? sc.cowPoint('rumen') : sc.cowPoint('liver');
+        return { pos, cam: { ...tr.cam0 }, caption: 'Hours later… the amino acids have travelled in the blood to the liver.', reveal: this.stationReveal(st, pos) };
+      }
+      // poop: zoom in on the tail end; the dung drops and carries our atom down to the soil
+      const A = { ...this.cowFor(S.waste), organ: s < 1.7 ? 'gut' : null, xray: s < 1.9, poopT: s, fresh: s > 3 };
+      A.tailLift = ease(clamp((s - .8) / .55, 0, 1)) * (1 - ease(clamp((s - 3.6) / .6, 0, 1)));
+      pose(A);
+      const anus = sc.cowPoint('anus'), ground = sc.surface(anus[0]), pieces = sc.dungDrop(s), first = pieces[0], soil = st.pos(sc);
+      let pos = sc.gutPoint(ease(clamp((s - .1) / 1.45, 0, 1)));
+      if (first) pos = [first.x, first.y];
+      if (first && first.state === 'land' && s > 3.7) { const top = [first.x, first.y], u = ease(clamp((s - 3.7) / 1.5, 0, 1)); pos = [lerp(top[0], soil[0], u), lerp(top[1], soil[1], u)]; }
+      const rearCam = sc.boxCam([[anus[0] - 110 * k, anus[1] - 70 * k], [anus[0] + 70 * k, ground + 26]], 3.2);
+      let cam = lerpCam(tr.cam0, rearCam, ease(clamp(s / 1.1, 0, 1)));
+      cam = settle(cam, 3.6, 1.6);
+      const caption = s < 1.5 ? 'The cow’s body must get rid of nitrogen it cannot use…' : s < 3.7 ? 'Plop! It leaves in dung (and urine), onto the soil.' : 'Our atom soaks into the soil, where decomposers are waiting.';
+      return { pos, cam, caption, reveal: [[anus[0], anus[1], 110 * k], [anus[0], ground, 100], [pos[0], pos[1], 70], [soil[0], soil[1], 90]] };
+    }
     update(dt) {
       if (!this.active) return;
       const sc = this.scene, st = this.station();
-      this.clock = (this.clock || 0) + dt; this.arriveT = (this.arriveT || 0) + dt;
-      let pos;
-      if (this.phase === 'travel' && this.travel) {
+      this.clock = (this.clock || 0) + dt; this.arriveT = (this.arriveT || 0) + dt; this.dark = 0; this.travelCaption = null;
+      let pos, reveal = null;
+      if (this.phase === 'travel' && this.travel && this.travel.plan) {
+        const tr = this.travel; tr.s += dt; tr.t = Math.min(1, tr.s / tr.plan.dur);
+        const out = this.runScript(st, tr, dt), last = tr.last || out.pos;
+        pos = out.pos; reveal = out.reveal; this.travelCaption = out.caption; sc.viewTarget = out.cam;
+        const v = Math.hypot(pos[0] - last[0], pos[1] - last[1]) / Math.max(dt, 1e-3); tr.last = pos;
+        if (v > 1) tr.heading = Math.atan2(pos[1] - last[1], pos[0] - last[0]); tr.speed = clamp(v / 260, 0, 1) * .6;
+        if (tr.s >= tr.plan.dur) { this.arrive(); pos = st.pos(sc); }
+      } else {
+        sc.cowAnim = this.cowFor(st); sc.updateCow(dt); sc.cowStamp = true;
+        if (this.phase === 'station' && sc.cowRig && sc.cowRig.amp > .05) this.frameCamera(); // keep framing a walking cow
+      }
+      if (pos) { /* scripted scene placed the atom */ }
+      else if (this.phase === 'travel' && this.travel) {
         const tr = this.travel; tr.t = Math.min(1, tr.t + dt / tr.dur);
         const e = .5 - .5 * Math.cos(Math.PI * tr.t); // ease in and out
         pos = sc.pointAt(tr.path, e);
@@ -2969,7 +3297,7 @@ dialog{color:var(--text)}
       const next = this.index < this.path.length - 1 && this.phase === 'station' ? this.station(this.index + 1) : null;
       sc.journey = {
         pos, compound: this.compound, route: null, fade: this.travel && this.travel.fade ? clamp(this.travel.t * 3, 0, 1) : 1,
-        reveal: this.phase === 'travel' ? [[pos[0], pos[1], 100], [...st.pos(sc), 90]] : [[...st.pos(sc), 120], [pos[0], pos[1], 70]],
+        reveal: reveal || (this.phase === 'travel' ? [[pos[0], pos[1], 100], [...st.pos(sc), 90]] : this.stationReveal(st, pos)),
         next: next ? next.pos(sc) : null, wet: this.visual && this.visual.wet, storm: this.visual && this.visual.storm,
         pop: this.phase === 'station' ? 1 + .35 * Math.max(0, 1 - this.arriveT / .5) * Math.sin(this.arriveT / .5 * Math.PI) : 1,
         heading: this.travel ? this.travel.heading || 0 : 0, speed: this.travel ? this.travel.speed || 0 : 0
@@ -2977,7 +3305,22 @@ dialog{color:var(--text)}
     }
     // Drawn on the scene canvas in screen space, after the landscape.
     drawOverlay(ctx) {
-      if (!this.active || this.lensIn < .01) { this.lens = null; return; }
+      if (this.active && this.lensIn >= .01) this.drawLens(ctx); else this.lens = null;
+      if (this.active && this.dark > .01) this.drawDark(ctx);
+    }
+    // "Hours later…": a short fade to black that lets the cow digest off screen.
+    drawDark(ctx) {
+      const sc = this.scene, d = sc.dpr || 1, W = sc.width, H = sc.height, I = sc.insets || { top: 0, bottom: 0, left: 0, right: 0 }, a = this.dark;
+      ctx.save(); ctx.setTransform(d, 0, 0, d, 0, 0);
+      ctx.fillStyle = 'rgba(4,9,12,' + (.94 * a) + ')'; ctx.fillRect(0, 0, W, H);
+      const cx = (I.left + W - I.right) / 2, cy = (I.top + H - I.bottom) / 2, spin = (this.clock || 0) * 6;
+      ctx.globalAlpha = clamp((a - .4) / .6, 0, 1); ctx.lineCap = 'round';
+      ctx.strokeStyle = '#ffd65a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy - 24, 22, 0, TAU); ctx.stroke();
+      ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(cx, cy - 24); ctx.lineTo(cx + Math.cos(spin) * 15, cy - 24 + Math.sin(spin) * 15); ctx.moveTo(cx, cy - 24); ctx.lineTo(cx + Math.cos(spin / 12 - 1) * 9, cy - 24 + Math.sin(spin / 12 - 1) * 9); ctx.stroke();
+      ctx.fillStyle = '#f2f5ee'; ctx.font = '700 22px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('Hours later…', cx, cy + 26);
+      ctx.restore();
+    }
+    drawLens(ctx) {
       const sc = this.scene, st = this.station(), lay = this.lensCentre(), a = this.lensIn, d = sc.dpr || 1;
       const S = sc.worldToScreen(...st.pos(sc)), e = ease(clamp(a, 0, 1));
       const R = lerp(14, lay.r, e), C = [lerp(S[0], lay.c[0], e), lerp(S[1], lay.c[1], e)]; // grows out of the spot
@@ -3444,7 +3787,8 @@ dialog{color:var(--text)}
   // The reaction plays in the microscope lens on the scene; the card follows its captions.
   function updateJourneyText() {
     const st = journey.station(), travelling = journey.phase === 'travel', step = travelling ? -1 : journey.step;
-    if (step !== jStep) { jStep = step; $('j-caption').textContent = travelling ? (st.transit || 'On the way to: ' + st.title.toLowerCase() + '…') : st.captions[step] || ''; }
+    const text = travelling ? (journey.travelCaption || st.transit || 'On the way to: ' + st.title.toLowerCase() + '…') : st.captions[step] || '';
+    if (step !== jStep || text !== $('j-caption').textContent) { jStep = step; $('j-caption').textContent = text; }
     const hl = travelling ? 0 : st.hl[Math.max(0, step)];
     if (hl !== jHl) { jHl = hl; $('j-eq').innerHTML = journeyEq(st, hl); }
   }
@@ -3519,7 +3863,8 @@ dialog{color:var(--text)}
       particleProcesses: [...new Set(scene.particles.map(p => p.recipe.process))],
       focusRoutes: scene.focusRoutes().map(({ from, to, process }) => ({ from, to, process })),
       ions: scene.ions ? Object.fromEntries(Object.entries(scene.ions.pools).map(([k, v]) => [k, v.length])) : {}, sound, particleStyle: formulaParticles ? 'formula' : 'dots',
-      journey: journey.active ? { station: journey.path[journey.index], index: journey.index, total: journey.path.length, phase: journey.phase, compound: journey.compound, path: journey.path.slice(), animT: journey.animT, pos: scene.journey && scene.journey.pos ? scene.journey.pos.slice() : null, lens: journey.lens ? { ...journey.lens } : null, caption: $('j-caption').textContent } : null
+      journey: journey.active ? { station: journey.path[journey.index], index: journey.index, total: journey.path.length, phase: journey.phase, compound: journey.compound, path: journey.path.slice(), animT: journey.animT, pos: scene.journey && scene.journey.pos ? scene.journey.pos.slice() : null, lens: journey.lens ? { ...journey.lens } : null, caption: $('j-caption').textContent, scene: journey.travel && journey.travel.plan ? journey.travel.plan.kind : null, dark: journey.dark || 0 } : null,
+      cow: scene.cowRig ? { dx: scene.cowRig.dx, walking: scene.cowRig.amp > .05, leafEaten: scene.cowRig.leafGone > .5, freshDung: scene.cowRig.fresh > .5, xray: scene.cowRig.xray > .5, mouth: scene.cowPoint('mouth'), anus: scene.cowPoint('anus') } : null
     }), writable: false
   });
 })();

@@ -103,7 +103,7 @@
   };
   S.assim = {
     frame: [140, 125], title: 'Assimilation', who: ['plant'], needs: ['light'], in: 'NO₃⁻', out: 'Protein N', outAt: 5.4, backdrop: 'leaf', duration: 6.6,
-    pos: sc => sc.plantPoint('leaf'),
+    pos: sc => sc.plantPoint('bite'), // the leaf the cow will eat
     via: (sc, from, to) => [from, sc.rootToWorld([0, 18]), sc.stemWorld(0.1), sc.stemWorld(0.35), to],
     atoms: { a: 'N*', o1: 'O', o2: 'O', o3: 'O', h1: 'H', h2: 'H', h3: 'H', h4: 'H', c1: 'C', c2: 'C', o4: 'O', o5: 'O', b1: 'AA', b2: 'AA', b3: 'AA' },
     frames: [
@@ -120,8 +120,8 @@
   const links = names => names.slice(1).map((n, i) => [names[i], n, 1]);
   S.feed = {
     frame: [185, 125], title: 'Feeding', who: ['cow'], needs: [], in: 'Protein N', out: 'Protein N', outAt: 4.4, backdrop: 'gut', duration: 5.6,
-    pos: sc => sc.cowPoint('belly'),
-    via: (sc, from, to) => { const m = sc.cowPoint('mouth'); return [from, [lerp(from[0], m[0], .5), Math.min(from[1], m[1]) - 50], m, to]; },
+    pos: sc => sc.cowPoint('rumen'),
+    script: 'eat', cow: { at: 'eat', head: 'chew', chew: .75, leafGone: 1, xray: 1, organ: 'rumen' },
     atoms: { p1: 'AA', p2: 'AA', p3: 'AA*', p4: 'AA', p5: 'AA', q1: 'AB', q2: 'AB', q3: 'AB' },
     frames: [
       { t: 0, at: chain(['p1', 'p2', 'p3', 'p4', 'p5'], 60, 95, 30, 6), bonds: links(['p1', 'p2', 'p3', 'p4', 'p5']), step: 0, labels: [['plant protein', 120, 135, 'Protein N']] },
@@ -129,13 +129,13 @@
       { t: 2.9, at: { p1: [110, 46], p2: [140, 142], p3: [166, 92], p4: [206, 44], p5: [232, 140] }, bonds: [], step: 2, flash: [166, 92], labels: [['amino acids', 166, 170, 'Protein N']] },
       { t: 4.4, at: at(chain(['q1', 'p3', 'q2', 'p1', 'q3'], 104, 95, 30, 6), { p2: [300, 170], p4: [300, 20], p5: [20, 170] }), bonds: links(['q1', 'p3', 'q2', 'p1', 'q3']), step: 3, labels: [['cow protein', 164, 135, 'Protein N']] }
     ],
-    captions: ['The cow eats the bean leaves.', 'In its gut the plant protein is digested…', '…into amino acids, which pass into the blood.', 'They are rebuilt into cow protein: muscle and milk.'],
+    captions: ['The bean leaf reaches the cow’s stomach.', 'There the plant protein is digested…', '…into amino acids, which pass into the blood.', 'They are rebuilt into cow protein: muscle and milk.'],
     eq: ['plant protein', '→', 'amino acids', '→', 'cow protein'], hl: [0, 0, 2, 4], detail: 'Digestion breaks peptide bonds (hydrolysis); the body joins amino acids into new proteins.'
   };
   S.waste = {
     frame: [125, 90], title: 'Waste', who: ['cow'], needs: [], in: 'Protein N', out: 'Organic N', outAt: 2.8, backdrop: 'gut', duration: 5.2,
-    pos: sc => sc.point('animal-detritus'),
-    via: (sc, from, to) => [from, sc.cowPoint('rear'), to],
+    pos: sc => sc.cowPoint('liver'),
+    script: 'later', cow: { at: 'dung', leafGone: 1, xray: 1, organ: 'liver' },
     atoms: { a: 'N*', h1: 'H', h2: 'H', c1: 'C', c2: 'C', o4: 'O', o5: 'O', c3: 'C', o6: 'O', b: 'N', h3: 'H', h4: 'H' },
     frames: [
       { t: 0, at: { a: [90, 95], h1: [76, 83], h2: [76, 108], c1: [114, 95], c2: [138, 95], o4: [154, 80], o5: [156, 110] }, bonds: [['a', 'h1', 1], ['a', 'h2', 1], ['a', 'c1', 1], ['c1', 'c2', 1], ['c2', 'o4', 2], ['c2', 'o5', 1]], step: 0, labels: [['amino acid', 115, 140, 'Protein N']] },
@@ -143,13 +143,13 @@
       { t: 2.8, at: UREA(175, 98, 'c3', 'o6', 'a', ['h1', 'h2'], 'b', ['h3', 'h4']), bonds: [['c3', 'o6', 2], ['c3', 'a', 1], ['c3', 'b', 1], ['a', 'h1', 1], ['a', 'h2', 1], ['b', 'h3', 1], ['b', 'h4', 1]], step: 2, labels: [['urea  CO(NH₂)₂', 175, 156, 'Organic N']] },
       { t: 4.2, at: UREA(175, 128, 'c3', 'o6', 'a', ['h1', 'h2'], 'b', ['h3', 'h4']), bonds: [['c3', 'o6', 2], ['c3', 'a', 1], ['c3', 'b', 1], ['a', 'h1', 1], ['a', 'h2', 1], ['b', 'h3', 1], ['b', 'h4', 1]], step: 3, labels: [['in urine & dung ↓', 175, 40, 'Organic N']] }
     ],
-    captions: ['The cow breaks down amino acids it does not need.', 'The nitrogen group, –NH₂, is removed…', '…and turned into urea, CO(NH₂)₂, in the liver.', 'Urea (in urine) and undigested matter (in dung) fall onto the soil.'],
+    captions: ['The cow breaks down amino acids it does not need.', 'The nitrogen group, –NH₂, is removed…', '…and turned into urea, CO(NH₂)₂, in the liver.', 'Urea (in urine) and undigested matter (in dung) must leave the body.'],
     eq: ['amino acids', '→', 'urea', '+', 'dung'], hl: [0, 0, 2, 4], detail: 'Amino acids → NH₃ → urea (urea cycle, liver). Dung also carries organic nitrogen.'
   };
   S.decomp = {
     frame: [110, 85], title: 'Decomposition', who: ['decomposers'], needs: ['microbes', 'water'], in: 'Organic N', out: 'NH₄⁺', outAt: 4.2, backdrop: 'soil', duration: 5.4,
     pos: sc => sc.microbeLocation('decomposers'),
-    via: (sc, from, to) => [from, to],
+    script: 'poop', cow: { at: 'dung', leafGone: 1, fresh: 1 },
     atoms: { c3: 'C', o6: 'O', a: 'N*', h1: 'H', h2: 'H', b: 'N', h3: 'H', h4: 'H', ow: 'O', owa: 'H', owb: 'H', h5: 'H' },
     frames: [
       { t: 0, at: UREA(105, 100, 'c3', 'o6', 'a', ['h1', 'h2'], 'b', ['h3', 'h4']), bonds: [['c3', 'o6', 2], ['c3', 'a', 1], ['c3', 'b', 1], ['a', 'h1', 1], ['a', 'h2', 1], ['b', 'h3', 1], ['b', 'h4', 1]], step: 0, labels: [['urea', 105, 156, 'Organic N']] },
@@ -157,11 +157,12 @@
       { t: 2.7, at: { c3: [250, 46], o6: [226, 46], ow: [274, 46], a: [128, 112], h1: [111, 102], h2: [126, 130], owa: [140, 98], b: [196, 112], h3: [213, 102], h4: [198, 130], owb: [184, 98] }, bonds: [['c3', 'o6', 2], ['c3', 'ow', 2], ['a', 'h1', 1], ['a', 'h2', 1], ['a', 'owa', 1], ['b', 'h3', 1], ['b', 'h4', 1], ['b', 'owb', 1]], step: 2, flash: [160, 100], labels: [['CO₂', 250, 72, 'H'], ['NH₃', 128, 150, 'NH₄⁺'], ['NH₃', 196, 150, 'NH₄⁺']] },
       { t: 4.2, at: at(NH4(128, 104, 'a', ['h1', 'owa', 'h2', 'h5']), { b: [286, 150], h3: [302, 142], h4: [286, 167], owb: [272, 138], c3: [300, 30], o6: [276, 30], ow: [320, 30] }), bonds: [...bondsTo('a', ['h1', 'owa', 'h2', 'h5']), ['b', 'h3', 1], ['b', 'h4', 1], ['b', 'owb', 1], ['c3', 'o6', 2], ['c3', 'ow', 2]], charges: { a: '+' }, step: 3, labels: [['NH₄⁺', 128, 146, 'NH₄⁺']] }
     ],
-    captions: ['Bacteria and fungi feed on dung and urine.', 'The enzyme urease splits urea using water…', '…releasing ammonia, NH₃, and carbon dioxide.', 'In moist soil NH₃ gains H⁺ → ammonium, NH₄⁺. This is ammonification.'],
+    captions: ['Bacteria and fungi feed on the fresh dung and urine.', 'The enzyme urease splits urea using water…', '…releasing ammonia, NH₃, and carbon dioxide.', 'In moist soil NH₃ gains H⁺ → ammonium, NH₄⁺. This is ammonification.'],
     eq: ['urea', '→', 'NH₃', '→', 'NH₄⁺'], hl: [0, 0, 2, 4], detail: 'CO(NH₂)₂ + H₂O → 2NH₃ + CO₂ (urease);  NH₃ + H⁺ → NH₄⁺'
   };
   S.denit = {
     frame: [140, 115], title: 'Denitrification', who: ['denitrifiers'], needs: ['waterlogged', 'microbes'], in: 'NO₃⁻', out: 'N₂', outAt: 4.1, backdrop: 'wet', duration: 6.2, wet: true,
+    cow: { at: 'dung', leafGone: 1, fresh: 1 },
     pos: sc => sc.microbeLocation('denitrifiers'),
     via: (sc, from, to) => [from, sc.point('ammonium'), sc.microbeLocation('nitrosomonas'), sc.point('nitrite'), sc.microbeLocation('nitrobacter'), sc.point('nitrate'), to],
     stages: [[2, 'NO₂⁻'], [4, 'NO₃⁻']], transit: 'On the way it is nitrified again: NH₄⁺ → NO₂⁻ → NO₃⁻.',
@@ -178,6 +179,7 @@
   };
   S.return = {
     frame: [250, 170], title: 'Back to the air', who: [], needs: [], in: 'N₂', out: 'N₂', outAt: 0, backdrop: 'air', duration: 5, finale: true,
+    cow: { at: 'dung', leafGone: 1, fresh: 1 },
     pos: sc => [sc.microbeLocation('denitrifiers')[0] - sc.W * 0.2, sc.L.G * 0.4],
     via: (sc, from, to) => { const x = from[0]; return [from, [x, sc.surface(x) - 4], [x - 20, sc.L.G * 0.6], to]; },
     atoms: S.air.atoms, frames: S.air.frames.map((f, i) => ({ ...f, step: Math.min(i, 1), labels: i === 1 ? [['✓ Cycle complete', 160, 22, 'N₂']] : f.labels })),
@@ -279,6 +281,8 @@
     AA: { r: 10, c: '#7dcf5a', t: '' }, AB: { r: 10, c: '#e39a8e', t: '' }
   };
   const LENS = { air: 'In the air', fix: 'Inside a root nodule', nit1: 'Inside Nitrosomonas', nit2: 'Inside Nitrobacter', abs: 'At a root hair', assim: 'Inside a leaf cell', feed: 'In the cow’s gut', waste: 'In the cow’s liver', decomp: 'Decomposers at work', denit: 'Inside Stutzerimonas', return: 'In the air', bolt: 'Inside a lightning bolt', rain: 'In a raindrop', factory: 'In the factory reactor', pellet: 'Pellet in soil water', leach: 'Soil water draining', river: 'In the river' };
+  // Cow head poses in cow space (see art.js): head up while walking, relaxed while chewing.
+  const WALK = { x: 120, y: -150, a: .55 }, CHEW = { x: 126, y: -138, a: .8 };
   function frameState(st, T) {
     const F = st.frames; let i = 0;
     while (i < F.length - 1 && T >= F[i + 1].t - Math.min(F[i + 1].t - F[i].t, 1.2)) i++;
@@ -506,7 +510,7 @@
     station(i = this.index) { return S[this.path[i]]; }
     branchHere() { const id = this.path[this.index]; return Object.entries(BRANCHES).filter(([, b]) => b.from === id && this.path.indexOf(b.stations[0]) === -1).map(([k, b]) => ({ id: k, ...b })); }
     start() { this.active = true; this.path = MAIN.slice(); this.lensIn = 0; this.goTo(0, true); }
-    stop() { this.active = false; this.phase = 'idle'; this.scene.journey = null; this.scene.resetView(); }
+    stop() { this.active = false; this.phase = 'idle'; this.dark = 0; this.scene.journey = null; this.scene.cowAnim = null; this.scene.resetView(); }
     takeBranch(id) {
       const b = BRANCHES[id]; if (!b) return;
       const from = this.path.indexOf(b.from), rejoin = MAIN.indexOf(b.rejoin);
@@ -522,6 +526,12 @@
       const st = this.station(), prevSt = this.index > 0 ? this.station(this.index - 1) : null, to = st.pos(sc);
       const jump = prevSt && prevSt.dead; // the atom left the field: follow another nitrate
       if (instant || !prevSt) { this.arrive(); return; }
+      if (st.script) { // the cow carries the atom: a short scripted scene instead of a glide
+        this.travel = { plan: this.planScript(st), s: 0, t: 0, cam0: { ...sc.camera } };
+        this.phase = 'travel'; this.compound = prevSt.out; this.visual = { wet: !!st.wet, storm: false };
+        if (this.onChange) this.onChange('travel');
+        return;
+      }
       const start = jump ? sc.point('nitrate') : prevSt.pos(sc);
       const wps = st.via ? st.via(sc, start, to) : [start, [lerp(start[0], to[0], .5), Math.min(start[1], to[1]) - 30], to];
       const path = sc.buildPath(wps);
@@ -533,8 +543,11 @@
       if (this.onChange) this.onChange('travel');
     }
     arrive() {
-      const sc = this.scene, st = this.station();
-      this.phase = 'station'; this.animT = 0; this.outDone = false; this.compound = st.in; this.travel = null; this.arriveT = 0;
+      const sc = this.scene, st = this.station(), tr = this.travel;
+      // skipping the "hours later" cut: the cow is already where the next scene needs it
+      if (tr && tr.plan && tr.plan.kind === 'later' && !tr.cut) { sc.cowAnim = { ...this.cowFor(st), snap: true }; sc.updateCow(0); }
+      this.phase = 'station'; this.animT = 0; this.outDone = false; this.compound = st.in; this.travel = null; this.arriveT = 0; this.travelCaption = null; this.dark = 0;
+      sc.cowAnim = this.cowFor(st);
       this.visual = { wet: !!st.wet, storm: !!st.storm };
       const [px, py] = st.pos(sc); if (sc.effects) sc.effects.push({ type: 'ripple', x: px, y: py, t: 0, dur: 1.4, color: '#ffd65a', bright: true });
       if (st.lightning && sc.lightning) sc.lightning();
@@ -577,12 +590,109 @@
       if (sy < I.top + my) y -= (I.top + my - sy) / k; else if (sy > H - I.bottom - my) y += (sy - (H - I.bottom - my)) / k;
       sc.viewTarget = sc.clampCamera({ zoom: z, x, y });
     }
+    /* ----- the cow: where it stands at each station, and its three short scenes ----- */
+    cowGeo() {
+      const sc = this.scene, L = sc.L, k = L.cowK, leaf = sc.biteLeaf(true);
+      // eat: mouth reaches the leaf; dung: the cow stands with its tail end over the dung pile
+      return { dxEat: leaf.bite[0] + 172 * k - L.cowX, dxDung: L.dungX - 6 - 116 * k - L.cowX };
+    }
+    cowFor(st) {
+      const c = st && st.cow; if (!c) return { dx: 0 };
+      const g = this.cowGeo(), A = { dx: c.at === 'eat' ? g.dxEat : c.at === 'dung' ? g.dxDung : 0, leafGone: !!c.leafGone, fresh: !!c.fresh, xray: !!c.xray, organ: c.organ || null };
+      if (c.head === 'chew') { A.head = CHEW; A.headW = 1; }
+      if (c.chew !== undefined) A.chew = c.chew;
+      return A;
+    }
+    stationReveal(st, pos) {
+      const sc = this.scene, out = [[...st.pos(sc), 120], [pos[0], pos[1], 70]];
+      if (st.cow && st.cow.xray) { const k = sc.L.cowK; out.push([...sc.cowToWorld([50, -110]), 150 * k], [...sc.cowToWorld([-70, -104]), 150 * k], [...sc.cowPoint('mouth'), 80 * k]); }
+      return out;
+    }
+    planScript(st) {
+      const rig = this.scene.cowRig || { dx: 0 }, g = this.cowGeo();
+      if (st.script === 'eat') { const dx0 = rig.dx, walk = clamp(Math.abs(g.dxEat - dx0) / 100, .8, 3.8), reach = .3 + walk - .15, bite = reach + .8; return { kind: 'eat', dx0, walk, reach, bite, dur: bite + 3.1 }; }
+      if (st.script === 'later') return { kind: 'later', cutAt: .75, dur: 2.7 };
+      return { kind: 'poop', dur: 5.4 };
+    }
+    // Runs one frame of a cow scene: poses the cow, then places the atom and the camera.
+    runScript(st, tr, dt) {
+      const sc = this.scene, p = tr.plan, s = tr.s, k = sc.L.cowK, g = this.cowGeo();
+      const lerpCam = (a, b, u) => ({ zoom: lerp(a.zoom, b.zoom, u), x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u) });
+      const pose = A => { sc.cowAnim = A; sc.updateCow(dt); sc.cowStamp = true; };
+      const settle = (cam, from, len) => { const u = ease(clamp((s - from) / len, 0, 1)); return u > 0 ? lerpCam(cam, this.stationCam(st).cam, u) : cam; };
+      if (p.kind === 'eat') {
+        const leaf = sc.biteLeaf(), after = s - p.bite;
+        const A = { dx: lerp(p.dx0, g.dxEat, ease(clamp((s - .3) / p.walk, 0, 1))), exact: true, head: WALK, headW: ease(clamp(s / .45, 0, 1)) };
+        if (s >= p.reach) { // stretch the neck out to the leaf, open wide… and snap shut
+          A.bite = leaf.bite;
+          A.biteW = after < 0 ? ease(clamp((s - p.reach) / .7, 0, 1)) : 1 - ease(clamp((after - .1) / .6, 0, 1));
+          A.open = after < 0 ? ease(clamp((s - p.reach - .3) / .4, 0, 1)) : 1 - clamp(after / .1, 0, 1);
+        }
+        if (after >= 0) {
+          A.head = CHEW; A.headW = 1; A.leafGone = true;
+          A.leaf = 1 - clamp((after - .6) / 1.3, 0, 1);
+          A.chew = clamp((after - .35) / .3, 0, 1) * .9;
+          if (after > 1.75 && after < 2.85) A.bolus = (after - 1.75) / 1.1;
+          A.xray = after > 1.4; A.organ = after > 2.7 ? 'rumen' : null;
+          if (!tr.bitten) { tr.bitten = true; sc.plantJolt = 1; if (sc.effects) sc.effects.push({ type: 'burst', x: leaf.bite[0], y: leaf.bite[1], color: '#9fd16a', t: 0, dur: .7, seed: 3, bright: true }); }
+        }
+        pose(A);
+        const mouth = sc.cowPoint('mouth'), box = sc.cowBox(), lc = leaf.centre;
+        let pos = lc;
+        if (after >= 0 && after < 1.75) pos = [lerp(lc[0], mouth[0], ease(clamp(after / .25, 0, 1))), lerp(lc[1], mouth[1], ease(clamp(after / .25, 0, 1)))];
+        else if (after >= 1.75 && after < 2.85) pos = sc.gulletPoint(A.bolus);
+        else if (after >= 2.85) pos = sc.cowPoint('rumen');
+        const walkCam = sc.boxCam([[box[0], box[1]], [box[2], box[3]], [lc[0] - 50, lc[1] - 50], [lc[0] + 30, lc[1] + 40]], 2.3);
+        const biteCam = sc.boxCam([[lc[0] - 90, lc[1] - 80], [mouth[0] + 150 * k, mouth[1] + 80]], 3);
+        const cowCam = sc.boxCam([[box[0], box[1] - 10], [box[2], box[3]]], 2.4);
+        let cam = lerpCam(lerpCam(walkCam, biteCam, ease(clamp((s - p.reach + .4) / .8, 0, 1))), cowCam, ease(clamp((after - 1.4) / .9, 0, 1)));
+        cam = settle(cam, p.dur - .8, .8);
+        const caption = s < p.reach - .3 ? 'The cow walks over to the bean plant…' : after < 1.2 ? 'It bites off a leaf — our nitrogen atom is in the leaf’s protein.' : 'Chew… swallow! The leaf goes down to the cow’s stomach.';
+        return { pos, cam, caption, reveal: [[...sc.cowToWorld([50, -110]), 160 * k], [...sc.cowToWorld([-70, -104]), 150 * k], [...mouth, 110 * k], [lc[0], lc[1], 110], [pos[0], pos[1], 70]] };
+      }
+      if (p.kind === 'later') {
+        const prev = S[this.path[this.index - 1]] || S.feed;
+        if (s < p.cutAt) pose(this.cowFor(prev));
+        else if (!tr.cut) { // in the dark: the cow wanders back to its spot by the dung pile
+          tr.cut = true; pose({ ...this.cowFor(st), snap: true });
+          const cam = this.stationCam(st).cam; sc.camera = { ...cam }; tr.cam0 = { ...cam };
+        } else pose(this.cowFor(st));
+        this.dark = s < p.cutAt ? ease(s / p.cutAt) : s < 1.6 ? 1 : 1 - ease(clamp((s - 1.6) / 1.05, 0, 1));
+        const pos = s < p.cutAt ? sc.cowPoint('rumen') : sc.cowPoint('liver');
+        return { pos, cam: { ...tr.cam0 }, caption: 'Hours later… the amino acids have travelled in the blood to the liver.', reveal: this.stationReveal(st, pos) };
+      }
+      // poop: zoom in on the tail end; the dung drops and carries our atom down to the soil
+      const A = { ...this.cowFor(S.waste), organ: s < 1.7 ? 'gut' : null, xray: s < 1.9, poopT: s, fresh: s > 3 };
+      A.tailLift = ease(clamp((s - .8) / .55, 0, 1)) * (1 - ease(clamp((s - 3.6) / .6, 0, 1)));
+      pose(A);
+      const anus = sc.cowPoint('anus'), ground = sc.surface(anus[0]), pieces = sc.dungDrop(s), first = pieces[0], soil = st.pos(sc);
+      let pos = sc.gutPoint(ease(clamp((s - .1) / 1.45, 0, 1)));
+      if (first) pos = [first.x, first.y];
+      if (first && first.state === 'land' && s > 3.7) { const top = [first.x, first.y], u = ease(clamp((s - 3.7) / 1.5, 0, 1)); pos = [lerp(top[0], soil[0], u), lerp(top[1], soil[1], u)]; }
+      const rearCam = sc.boxCam([[anus[0] - 110 * k, anus[1] - 70 * k], [anus[0] + 70 * k, ground + 26]], 3.2);
+      let cam = lerpCam(tr.cam0, rearCam, ease(clamp(s / 1.1, 0, 1)));
+      cam = settle(cam, 3.6, 1.6);
+      const caption = s < 1.5 ? 'The cow’s body must get rid of nitrogen it cannot use…' : s < 3.7 ? 'Plop! It leaves in dung (and urine), onto the soil.' : 'Our atom soaks into the soil, where decomposers are waiting.';
+      return { pos, cam, caption, reveal: [[anus[0], anus[1], 110 * k], [anus[0], ground, 100], [pos[0], pos[1], 70], [soil[0], soil[1], 90]] };
+    }
     update(dt) {
       if (!this.active) return;
       const sc = this.scene, st = this.station();
-      this.clock = (this.clock || 0) + dt; this.arriveT = (this.arriveT || 0) + dt;
-      let pos;
-      if (this.phase === 'travel' && this.travel) {
+      this.clock = (this.clock || 0) + dt; this.arriveT = (this.arriveT || 0) + dt; this.dark = 0; this.travelCaption = null;
+      let pos, reveal = null;
+      if (this.phase === 'travel' && this.travel && this.travel.plan) {
+        const tr = this.travel; tr.s += dt; tr.t = Math.min(1, tr.s / tr.plan.dur);
+        const out = this.runScript(st, tr, dt), last = tr.last || out.pos;
+        pos = out.pos; reveal = out.reveal; this.travelCaption = out.caption; sc.viewTarget = out.cam;
+        const v = Math.hypot(pos[0] - last[0], pos[1] - last[1]) / Math.max(dt, 1e-3); tr.last = pos;
+        if (v > 1) tr.heading = Math.atan2(pos[1] - last[1], pos[0] - last[0]); tr.speed = clamp(v / 260, 0, 1) * .6;
+        if (tr.s >= tr.plan.dur) { this.arrive(); pos = st.pos(sc); }
+      } else {
+        sc.cowAnim = this.cowFor(st); sc.updateCow(dt); sc.cowStamp = true;
+        if (this.phase === 'station' && sc.cowRig && sc.cowRig.amp > .05) this.frameCamera(); // keep framing a walking cow
+      }
+      if (pos) { /* scripted scene placed the atom */ }
+      else if (this.phase === 'travel' && this.travel) {
         const tr = this.travel; tr.t = Math.min(1, tr.t + dt / tr.dur);
         const e = .5 - .5 * Math.cos(Math.PI * tr.t); // ease in and out
         pos = sc.pointAt(tr.path, e);
@@ -605,7 +715,7 @@
       const next = this.index < this.path.length - 1 && this.phase === 'station' ? this.station(this.index + 1) : null;
       sc.journey = {
         pos, compound: this.compound, route: null, fade: this.travel && this.travel.fade ? clamp(this.travel.t * 3, 0, 1) : 1,
-        reveal: this.phase === 'travel' ? [[pos[0], pos[1], 100], [...st.pos(sc), 90]] : [[...st.pos(sc), 120], [pos[0], pos[1], 70]],
+        reveal: reveal || (this.phase === 'travel' ? [[pos[0], pos[1], 100], [...st.pos(sc), 90]] : this.stationReveal(st, pos)),
         next: next ? next.pos(sc) : null, wet: this.visual && this.visual.wet, storm: this.visual && this.visual.storm,
         pop: this.phase === 'station' ? 1 + .35 * Math.max(0, 1 - this.arriveT / .5) * Math.sin(this.arriveT / .5 * Math.PI) : 1,
         heading: this.travel ? this.travel.heading || 0 : 0, speed: this.travel ? this.travel.speed || 0 : 0
@@ -613,7 +723,22 @@
     }
     // Drawn on the scene canvas in screen space, after the landscape.
     drawOverlay(ctx) {
-      if (!this.active || this.lensIn < .01) { this.lens = null; return; }
+      if (this.active && this.lensIn >= .01) this.drawLens(ctx); else this.lens = null;
+      if (this.active && this.dark > .01) this.drawDark(ctx);
+    }
+    // "Hours later…": a short fade to black that lets the cow digest off screen.
+    drawDark(ctx) {
+      const sc = this.scene, d = sc.dpr || 1, W = sc.width, H = sc.height, I = sc.insets || { top: 0, bottom: 0, left: 0, right: 0 }, a = this.dark;
+      ctx.save(); ctx.setTransform(d, 0, 0, d, 0, 0);
+      ctx.fillStyle = 'rgba(4,9,12,' + (.94 * a) + ')'; ctx.fillRect(0, 0, W, H);
+      const cx = (I.left + W - I.right) / 2, cy = (I.top + H - I.bottom) / 2, spin = (this.clock || 0) * 6;
+      ctx.globalAlpha = clamp((a - .4) / .6, 0, 1); ctx.lineCap = 'round';
+      ctx.strokeStyle = '#ffd65a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy - 24, 22, 0, TAU); ctx.stroke();
+      ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(cx, cy - 24); ctx.lineTo(cx + Math.cos(spin) * 15, cy - 24 + Math.sin(spin) * 15); ctx.moveTo(cx, cy - 24); ctx.lineTo(cx + Math.cos(spin / 12 - 1) * 9, cy - 24 + Math.sin(spin / 12 - 1) * 9); ctx.stroke();
+      ctx.fillStyle = '#f2f5ee'; ctx.font = '700 22px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('Hours later…', cx, cy + 26);
+      ctx.restore();
+    }
+    drawLens(ctx) {
       const sc = this.scene, st = this.station(), lay = this.lensCentre(), a = this.lensIn, d = sc.dpr || 1;
       const S = sc.worldToScreen(...st.pos(sc)), e = ease(clamp(a, 0, 1));
       const R = lerp(14, lay.r, e), C = [lerp(S[0], lay.c[0], e), lerp(S[1], lay.c[1], e)]; // grows out of the spot
