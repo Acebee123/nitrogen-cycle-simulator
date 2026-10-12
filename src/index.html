@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f4eb"><meta name="description" content="Explore a living nitrogen cycle. Change the weather, nourish the soil, and watch nitrogen move through an interconnected ecosystem.">
+  <title>Nitrogen — A living cycle</title><link rel="stylesheet" href="original.css"><link rel="stylesheet" href="clarity.css">
+</head>
+<body>
+<main class="app">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">n<span>₂</span></span><span>FIELDNOTES <small>INTERACTIVE SCIENCE</small></span></div>
+    <div class="header-note">One element. An entire ecosystem.</div>
+    <button id="sound" class="icon-button" aria-pressed="false" aria-label="Turn environmental sound on" title="Sound off"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM16 9l5 6m0-6-5 6"/></svg></button>
+  </header>
+  <section class="intro">
+    <div><div class="eyebrow">THE INVISIBLE CONNECTIONS</div><h1>Nitrogen. <em>A living cycle.</em></h1><p>Follow nitrogen through the air, the soil, and everything that grows.</p></div>
+    <div class="scenario-area"><label for="scenario">EXPLORE AN ECOSYSTEM</label><select id="scenario"><option value="healthy">Healthy ecosystem</option><option value="rain">Heavy rainfall</option><option value="fertilized">Over-fertilized soil</option></select></div>
+  </section>
+  <section class="ecosystem" aria-label="Interactive nitrogen cycle landscape">
+    <div class="scene-top"><span class="scene-badge"><i></i><span id="weather-label">Balanced conditions</span></span><span class="scene-time">DAY <strong id="day">00.0</strong></span><div class="mode-switch" role="group" aria-label="Visualization mode"><button id="whole-mode" aria-pressed="true">Whole cycle</button><button id="focus-mode" aria-pressed="false">Focus mode</button></div></div>
+    <div class="landscape"><canvas id="landscape" aria-label="Bean plant and cow above a soil cross-section, with roots, microorganisms, and animated nitrogen transfers"></canvas>
+      <div id="scene-labels" class="scene-labels">
+        <button class="tag atmosphere" data-info="fixation"><span class="dot air"></span><span class="air-desktop">Atmospheric nitrogen</span><span class="air-mobile">Atmosphere</span><b>N₂</b></button>
+        <button class="tag plant-tag" data-info="uptake">Bean plant <span class="small-arrow">↗</span></button>
+        <button class="tag cow-tag" data-info="feeding"><span class="tag-copy"><strong>Cow · feeding</strong><small>Plant proteins → animal proteins</small></span></button>
+        <button class="tag leaf-organic-tag" data-info="litter"><span class="tag-copy"><strong>Dead leaves</strong><small>Organic N → soil</small></span></button>
+        <button class="tag waste-organic-tag" data-info="litter"><span class="tag-copy"><strong>Animal waste</strong><small>Organic N → soil</small></span></button>
+        <button class="tag organic-tag" data-info="decomposition"><span class="tag-copy"><strong>Bacillus</strong><small>Decomposing bacteria</small></span></button>
+        <button class="tag nodule-tag" data-info="fixation"><span class="tag-copy"><strong>Rhizobium</strong><small>Root-nodule bacteria</small></span></button>
+        <button class="tag fixer-microbe" data-info="fixation"><span class="tag-copy"><strong>Azotobacter</strong><small>Free-living soil bacteria</small></span></button>
+        <button class="tag nostoc-microbe" data-info="fixation"><span class="tag-copy"><strong>Nostoc</strong><small>Surface cyanobacteria</small></span></button>
+        <button class="tag ammonium-tag" data-info="nitri1"><span class="dot ammonium"></span>NH₄⁺ <span class="tag-name">Ammonium ions</span></button>
+        <button class="tag nitrite-tag" data-info="nitri2"><span class="dot nitrite"></span>NO₂⁻ <span class="tag-name">Nitrite ions</span></button>
+        <button class="tag nitrate-tag" data-info="uptake"><span class="dot nitrate"></span>NO₃⁻ <span class="tag-name">Nitrate ions</span></button>
+        <button class="tag nitri1-microbe" data-info="nitri1"><span class="tag-copy"><strong>Nitrosomonas</strong><small>NH₄⁺ → NO₂⁻</small></span></button>
+        <button class="tag nitri2-microbe" data-info="nitri2"><span class="tag-copy"><strong>Nitrobacter</strong><small>NO₂⁻ → NO₃⁻</small></span></button>
+        <button class="tag denit-tag" data-info="denitrification"><span class="tag-copy"><strong>Stutzerimonas</strong><small>NO₃⁻ → N₂ gas</small></span></button>
+        <button class="tag leach-tag" data-info="leaching"><span class="tag-copy"><strong>Groundwater</strong><small>Dissolved nitrate</small></span></button>
+      </div>
+      <div id="layer-air" class="layer-label layer-air">ATMOSPHERE</div><div id="layer-top" class="layer-label layer-top">TOPSOIL</div><div id="layer-sub" class="layer-label layer-sub">SUBSOIL</div>
+      <div class="scene-hint">Glowing dots = nitrogen · Rods = microbes · Tap a microbe or label to identify it</div>
+    </div>
+    <div class="view-bar" aria-label="Landscape inspection controls"><div class="view-presets"><button id="reset-view" title="Return to the full ecosystem">Reset view</button><button id="view-roots">Roots</button><button id="view-bacteria">Bacteria</button><button id="view-compounds">Soil compounds</button><button id="view-water">Groundwater</button></div><span class="view-hint">Scroll to zoom · drag to pan</span><div class="zoom-controls"><button id="zoom-out" aria-label="Zoom out">−</button><output id="zoom-value" aria-label="View magnification">100%</output><button id="zoom-in" aria-label="Zoom in">+</button></div></div>
+    <nav class="processes" aria-label="Focus on a nitrogen process"><button data-info="fixation">Fixation</button><button data-info="nitrification">Nitrification</button><button data-info="uptake">Absorption</button><button data-info="feeding">Feeding</button><button data-info="litter">Leaves &amp; waste</button><button data-info="decomposition">Decomposition</button><button data-info="denitrification">Denitrification</button><button data-info="lightning">Lightning</button><button data-info="leaching">Leaching</button><button data-info="fertilizer">Fertilizer</button></nav>
+    <aside id="explanation" class="explanation" hidden><button id="close-info" class="close-button" aria-label="Close process explanation">×</button><div id="nitrate-effect" class="eyebrow">NITROGEN IN MOTION</div><h2 id="info-name" tabindex="-1"></h2><div class="reaction"><span id="info-input"></span><span>→</span><span id="info-output"></span></div><p id="info-description"></p><div id="focus-rate" class="focus-rate"></div></aside>
+    <div class="scene-bottom"><div class="legend"><span><i class="dot air"></i>N₂</span><span><i class="dot ammonium"></i>NH₄⁺</span><span><i class="dot nitrite"></i>NO₂⁻</span><span><i class="dot nitrate"></i>NO₃⁻</span><span><i class="dot feeding"></i>Organic N · feeding</span><span><i class="dot organic"></i>Organic N · dead matter</span></div><div class="playback"><button id="play" aria-label="Pause simulation" title="Pause simulation">Ⅱ</button><button id="restart" aria-label="Restart current scenario" title="Restart current scenario">↺</button><span class="divider"></span><label for="speed" class="sr-only">Simulation speed</label><select id="speed" aria-label="Simulation speed"><option value=".5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></div></div>
+  </section>
+  <section class="control-dock" aria-label="Environmental controls">
+    <div class="intervention-group"><div class="control-caption">CHANGE THE ENVIRONMENT</div><div class="action-buttons">
+      <button id="lightning" class="action"><svg viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 10-13h-8z"/></svg><span>Lightning</span></button>
+      <button id="rain" class="action"><svg viewBox="0 0 24 24"><path d="M6 14a4 4 0 1 1 1-8 6 6 0 0 1 11 2 3 3 0 0 1 0 6M7 17l-1 3m6-3-1 3m6-3-1 3"/></svg><span>Heavy rain</span></button>
+      <button id="grow" class="action"><svg viewBox="0 0 24 24"><path d="M12 21V11M12 14C4 15 3 8 3 5c6 0 9 2 9 9ZM12 11c0-6 3-8 9-8 0 6-3 9-9 8Z"/></svg><span>Grow plant</span></button>
+      <button id="leaves" class="action"><svg viewBox="0 0 24 24"><path d="M5 20c5-6 7-9 13-14M5 16C2 8 11 3 21 3c0 12-5 19-12 16M10 12v5m3-8h5"/></svg><span>Dead leaves</span></button>
+    </div></div>
+    <div class="slider-block fertilizer-block"><label for="fertilizer">Fertilizer <output id="fertilizer-value">20 N units</output></label><div class="fertilizer-row"><input id="fertilizer" type="range" min="5" max="100" step="5" value="20"><button id="add-fertilizer" class="add-button" aria-label="Add selected fertilizer quantity">Add <span>+</span></button></div><div id="fertilizer-status" class="fertilizer-status" role="status">Choose dose, then Add · 60% NH₄⁺ / 40% NO₃⁻</div></div>
+    <div class="slider-block"><label for="bacteria">Bacteria activity <output id="bacteria-value">100%</output></label><input id="bacteria" type="range" min="0" max="200" step="5" value="100"></div>
+    <div class="slider-block"><label for="moisture">Soil moisture <output id="moisture-value">55%</output></label><input id="moisture" type="range" min="0" max="100" step="1" value="55"></div>
+  </section>
+  <footer><span>A simplified educational ecosystem. Quantities and rates are illustrative.</span><button id="model-info">About the model <span>↗</span></button></footer>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="about-dialog"><button id="close-about" class="close-button" aria-label="Close model information">×</button><div class="eyebrow">DESIGNED FOR EXPLORATION</div><h2>One connected system.</h2><p>Moving particles are proportional visual cues emitted only by real transfers in this model. The eight nitrogen reservoirs share a conserved total: initial nitrogen + recorded external inputs = current nitrogen, including cumulative drainage loss.</p><p>The simulation uses fixed 0.05-day steps. One second at 1× advances half an illustrative day. Speed changes how quickly time advances, not the conversion rules. Rates respond to available nitrogen, microbial activity, soil moisture and oxygen availability.</p><p>Fertilizer adds 60% NH₄⁺ and 40% NO₃⁻. Dead leaves add 8 N units. Lightning transfers N₂ from the atmosphere into nitrate gradually. Growth encourages uptake; it never creates nitrogen.</p><p>This finite, closed educational landscape simplifies a much larger real ecosystem. It omits temperature, pH, immobilization, ammonia volatilization, microbial nitrogen biomass and separate denitrification gases. Plant uptake follows the supplied textbook’s nitrate pathway; real plants can also absorb ammonium. Biological fixation produces ammonia/ammonium first, with nitrate formed through nitrification. Particle counts are proportional cues; each particle is not one N unit.</p><p>Scientific pathway reference: <a href="https://swroc.cfans.umn.edu/research/soil-water/nitrogen-cycle" target="_blank" rel="noreferrer">University of Minnesota · Nitrogen Cycle</a>.</p></dialog>
+
+  <dialog id="microbe-dialog" class="microbe-dialog" aria-labelledby="microbe-name" aria-describedby="microbe-description">
+    <button id="close-microbe" class="close-button" aria-label="Close bacteria picture">×</button>
+    <div class="eyebrow">MEET THE MICROORGANISMS</div>
+    <label class="sr-only" for="microbe-select">Choose a microorganism</label>
+    <select id="microbe-select" class="microbe-select"><option value="rhizobium">Rhizobium etli</option><option value="soilFixers">Azotobacter chroococcum</option><option value="nostoc">Nostoc commune</option><option value="nitrosomonas">Nitrosomonas europaea</option><option value="nitrobacter">Nitrobacter winogradskyi</option><option value="denitrifiers">Stutzerimonas stutzeri</option><option value="decomposers">Bacillus subtilis</option></select>
+    <div class="microbe-card-grid">
+      <figure class="microbe-figure"><div id="microbe-picture" class="microbe-picture" role="img" aria-label="Scientific illustration of bacteria"></div><figcaption>Scientific illustration · magnified<br>Colors are illustrative</figcaption></figure>
+        <div class="microbe-details"><div id="microbe-group" class="microbe-group"></div><h2 id="microbe-name"></h2><div id="microbe-reaction" class="microbe-reaction"></div><p id="microbe-description"></p><div class="microbe-habitat"><span>WHERE THEY LIVE</span><div id="microbe-habitat"></div></div><p id="microbe-note" class="microbe-note"></p><a id="microbe-reference" class="microbe-reference" href="https://pubmed.ncbi.nlm.nih.gov/15184121/" target="_blank" rel="noreferrer">Scientific reference ↗</a></div>
+    </div>
+    <button id="locate-microbe" class="microbe-locate">Show in ecosystem <span aria-hidden="true">↗</span></button>
+  </dialog>
+</main><script src="model.js"></script><script src="scene.js"></script><script src="clarity.js"></script><script src="app.js"></script>
+</body></html>
