@@ -523,11 +523,6 @@
     const j = this.journey; if (!j || !j.pos) return;
     const px = this.s * this.camera.zoom, color = this.particleColor(j.compound), [x, y] = j.pos;
     ctx.save(); ctx.lineCap = 'round';
-    if (j.route) { // the road ahead
-      ctx.globalAlpha = .9; ctx.beginPath(); j.route.samples.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
-      ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 6 / px; ctx.stroke();
-      ctx.setLineDash([2 / px, 11 / px]); ctx.lineDashOffset = this.reduced ? 0 : -t * 40 / px; ctx.strokeStyle = 'rgba(255,240,190,.9)'; ctx.lineWidth = 2.6 / px; ctx.stroke(); ctx.setLineDash([]);
-    }
     if (j.next) { // a gentle beacon on the next stop
       const r = (16 + (this.reduced ? 0 : (t * 1.2 % 1) * 12)) / px; ctx.globalAlpha = .7 * (1 - (this.reduced ? 0 : t * 1.2 % 1));
       ctx.strokeStyle = '#ffe9a3'; ctx.lineWidth = 2 / px; ctx.beginPath(); ctx.arc(j.next[0], j.next[1], r, 0, Math.PI * 2); ctx.stroke();

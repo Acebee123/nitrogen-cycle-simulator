@@ -12,7 +12,7 @@ Tap the **journey** button (the winding path, next to play) to pause the live mo
 
 air → root nodule (fixation) → Nitrosomonas → Nitrobacter → root hair → leaf → cow → waste → decomposers → denitrifiers → back to the air.
 
-At each station the camera frames the spot and a **microscope lens** opens in the landscape, linked to it by a beam of light. Inside the lens the reaction plays out with real atoms — inside the bacterium, nodule, root hair, leaf cell, gut or soil — while the card shows a one-line caption that follows the animation, the equation lighting up step by step, who does it, what it needs, and (tap “=”) the balanced equation. The atom's formula label changes as it is transformed.
+Between stations the atom glides smoothly while the camera follows it. At each station the camera frames the spot and a **microscope lens** opens in the landscape, linked to it by a beam of light. Inside the lens the reaction plays out with real atoms — inside the bacterium, nodule, root hair, leaf cell, gut or soil — while the card shows a one-line caption that follows the animation, the equation lighting up step by step, who does it, what it needs, and (tap “=”) the balanced equation. The atom's formula label changes as it is transformed.
 
 - Advance by tapping the atom or the next-stop beacon, the → button, or **→ / Page Down / Space** (works with a presentation clicker). **← / Page Up** goes back, **R** or tapping the lens replays, **Esc** leaves.
 - Side trips: **Lightning** and **Fertilizer** (Haber–Bosch factory → pellet) from the air station, **Leaching** (groundwater → algae bloom) once nitrate forms. Each rejoins the main path.

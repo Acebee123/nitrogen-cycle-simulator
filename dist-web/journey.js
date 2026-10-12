@@ -460,9 +460,9 @@
       const wps = st.via ? st.via(sc, start, to) : [start, [lerp(start[0], to[0], .5), Math.min(start[1], to[1]) - 30], to];
       const path = sc.buildPath(wps);
       path.stages = [{ t: 0, c: prevSt.out }].concat((st.stages || []).map(([wi, c]) => ({ t: path.wpT[wi], c })));
-      this.travel = { path, t: 0, dur: clamp(path.total / 210, 1.4, 3.4), fade: jump };
+      // A smooth glide: eased progress, and the camera dollies from this view to the next station's.
+      this.travel = { path, t: 0, dur: clamp(path.total / 165, 2, 4.2), fade: jump, cam0: { ...sc.camera }, cam1: this.stationCam(st).cam };
       this.phase = 'travel'; this.compound = prevSt.out;
-      sc.fitView(path.samples, 2.2);
       this.visual = { wet: !!st.wet, storm: false };
       if (this.onChange) this.onChange('travel');
     }
@@ -488,25 +488,44 @@
     lensCentre() { const lay = this.lensLayout(); return { r: lay.r, c: this.lensSide ? lay.b : lay.a }; }
     frameCamera() {
       if (!this.active || this.phase !== 'station') return;
-      const sc = this.scene, st = this.station(), lay = this.lensLayout(), [x, y] = st.pos(sc), [hw, hh] = st.frame || [100, 80];
+      const { cam, side } = this.stationCam(this.station());
+      this.lensSide = side; this.scene.viewTarget = cam;
+    }
+    stationCam(st) {
+      const sc = this.scene, lay = this.lensLayout(), [x, y] = st.pos(sc), [hw, hh] = st.frame || [100, 80];
       const z = clamp(Math.min(lay.sw / (2 * hw * sc.s), Math.max(60, lay.sh) / (2 * hh * sc.s)), 1, 3), k = sc.s * z;
       const place = side => { const [ax, ay] = lay.anchors[side], cam = sc.clampCamera({ zoom: z, x: x - (ax - sc.width / 2) / k, y: y - (ay - sc.height / 2) / k }); const S = [(x - cam.x) * k + sc.width / 2, (y - cam.y) * k + sc.height / 2], C = side ? lay.b : lay.a; return { cam, gap: Math.hypot(S[0] - C[0], S[1] - C[1]) - lay.r }; };
       // Prefer the usual side; switch when the camera can't move far enough to keep the spot clear of the lens.
       const first = place(0), second = place(1), use = first.gap >= 40 || first.gap >= second.gap ? 0 : 1;
-      this.lensSide = use; sc.viewTarget = (use ? second : first).cam;
+      return { cam: (use ? second : first).cam, side: use };
+    }
+    followCamera(tr, e, pos) {
+      const sc = this.scene, a = tr.cam0, b = tr.cam1, I = sc.insets || { top: 0, bottom: 0, left: 0, right: 0 };
+      const z = Math.max(1, lerp(a.zoom, b.zoom, e) * (1 - .2 * Math.sin(Math.PI * e))), k = sc.s * z;
+      let x = lerp(a.x, b.x, e), y = lerp(a.y, b.y, e);
+      // keep the gliding atom comfortably inside the visible area
+      const W = sc.width, H = sc.height, mx = (W - I.left - I.right) * .16, my = (H - I.top - I.bottom) * .16;
+      const sx = (pos[0] - x) * k + W / 2, sy = (pos[1] - y) * k + H / 2;
+      if (sx < I.left + mx) x -= (I.left + mx - sx) / k; else if (sx > W - I.right - mx) x += (sx - (W - I.right - mx)) / k;
+      if (sy < I.top + my) y -= (I.top + my - sy) / k; else if (sy > H - I.bottom - my) y += (sy - (H - I.bottom - my)) / k;
+      sc.viewTarget = sc.clampCamera({ zoom: z, x, y });
     }
     update(dt) {
       if (!this.active) return;
       const sc = this.scene, st = this.station();
-      let pos, route = null;
+      this.clock = (this.clock || 0) + dt;
+      let pos;
       if (this.phase === 'travel' && this.travel) {
         const tr = this.travel; tr.t = Math.min(1, tr.t + dt / tr.dur);
-        pos = sc.pointAt(tr.path, tr.t); route = tr.path;
-        let c = tr.path.stages[0].c; for (const s of tr.path.stages) if (tr.t >= s.t) c = s.c;
+        const e = .5 - .5 * Math.cos(Math.PI * tr.t); // ease in and out
+        pos = sc.pointAt(tr.path, e);
+        this.followCamera(tr, e, pos);
+        let c = tr.path.stages[0].c; for (const s of tr.path.stages) if (e >= s.t) c = s.c;
         if (c !== this.compound) { this.compound = c; if (sc.effects) sc.effects.push({ type: 'burst', x: pos[0], y: pos[1], color: sc.particleColor(c), t: 0, dur: .7, seed: 1, bright: true }); }
         if (tr.t >= 1) this.arrive();
       } else {
-        pos = st.pos(sc);
+        const p = st.pos(sc), bob = this.scene.reduced ? 0 : Math.sin(this.clock * 2.2) * 1.6; // a gentle float while it waits
+        pos = [p[0], p[1] + bob];
         if (this.lensIn > .6) this.animT += dt; // the reaction starts once the lens is open
         if (!this.outDone && this.animT >= st.outAt) {
           this.outDone = true;
@@ -517,8 +536,8 @@
       const fs = frameState(st, this.phase === 'station' ? this.animT : 0); this.step = this.phase === 'station' ? fs.step : -1;
       const next = this.index < this.path.length - 1 && this.phase === 'station' ? this.station(this.index + 1) : null;
       sc.journey = {
-        pos, compound: this.compound, route, fade: this.travel && this.travel.fade ? clamp(this.travel.t * 3, 0, 1) : 1,
-        reveal: [[...st.pos(sc), 120]].concat(pos ? [[pos[0], pos[1], 70]] : []),
+        pos, compound: this.compound, route: null, fade: this.travel && this.travel.fade ? clamp(this.travel.t * 3, 0, 1) : 1,
+        reveal: this.phase === 'travel' ? [[pos[0], pos[1], 100], [...st.pos(sc), 90]] : [[...st.pos(sc), 120], [pos[0], pos[1], 70]],
         next: next ? next.pos(sc) : null, wet: this.visual && this.visual.wet, storm: this.visual && this.visual.storm
       };
     }
