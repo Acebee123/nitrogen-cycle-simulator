@@ -1,0 +1,8 @@
+work/
+outputs/
+tests/
+dist-offline/
+dist-web/
+node_modules/
+*.zip
+TESTING.md

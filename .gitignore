@@ -1,0 +1,9 @@
+work/
+outputs/
+node_modules/
+*.zip
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
