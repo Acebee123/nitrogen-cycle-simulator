@@ -316,6 +316,10 @@
         for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + e.seed; ctx.beginPath(); ctx.moveTo(e.x + Math.cos(a) * rr * .5, e.y + Math.sin(a) * rr * .5); ctx.lineTo(e.x + Math.cos(a) * rr * 1.25, e.y + Math.sin(a) * rr * 1.25); ctx.stroke(); }
         const g = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, rr * 1.2); g.addColorStop(0, rgba(e.color, (1 - u) * .4)); g.addColorStop(1, rgba(e.color, 0)); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(e.x, e.y, rr * 1.2, 0, TAU); ctx.fill();
         ctx.restore();
+      } else if (e.type === 'ripple') { // arrival rings spreading from the station
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        for (const lag of [0, .22, .44]) { const v = clamp((u - lag) / (1 - lag), 0, 1); if (v <= 0) continue; ctx.strokeStyle = rgba(e.color, (1 - v) * .7); ctx.lineWidth = Math.max(1, 2 / px) * (1 - v * .6); ctx.beginPath(); ctx.ellipse(e.x, e.y, (8 + v * 46) / px * 1.4, (8 + v * 46) / px, 0, 0, TAU); ctx.stroke(); }
+        ctx.restore();
       } else if (e.type === 'spark') {
         ctx.fillStyle = rgba(e.color, Math.sin(u * Math.PI) * .9); ctx.beginPath(); ctx.arc(e.x + Math.sin(u * 6 + e.x) * 4, e.y - u * 40, 1.6 + (1 - u), 0, TAU); ctx.fill();
       } else if (e.type === 'nox') { // brownish nitrogen oxides around the bolt
@@ -528,13 +532,17 @@
       ctx.strokeStyle = '#ffe9a3'; ctx.lineWidth = 2 / px; ctx.beginPath(); ctx.arc(j.next[0], j.next[1], r, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.globalAlpha = j.fade;
-    const pulse = this.reduced ? 1 : 1 + Math.sin(t * 4) * .1, halo = 30 / px * pulse;
+    const pop = j.pop || 1, pulse = (this.reduced ? 1 : 1 + Math.sin(t * 4) * .1) * pop, halo = 30 / px * pulse;
+    // a faint wake of light right behind the gliding atom (no line, just a soft glow)
+    if (j.speed > .05 && !this.reduced) for (let k = 1; k <= 4; k++) { const d = k * 7 / px * j.speed, gx = x - Math.cos(j.heading) * d, gy = y - Math.sin(j.heading) * d, gr = (16 - k * 2.5) / px; const gw = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr); gw.addColorStop(0, rgba(color, .28 * (1 - k / 5))); gw.addColorStop(1, rgba(color, 0)); ctx.fillStyle = gw; ctx.beginPath(); ctx.arc(gx, gy, gr, 0, TAU); ctx.fill(); }
     const g = ctx.createRadialGradient(x, y, 0, x, y, halo); g.addColorStop(0, 'rgba(255,220,110,.8)'); g.addColorStop(.45, 'rgba(255,214,90,.28)'); g.addColorStop(1, 'rgba(255,214,90,0)');
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, halo, 0, Math.PI * 2); ctx.fill();
-    if (px > 1.75 && !this.formulaParticles) { const s = 18 / px; ctx.drawImage(this.moleculeSprite(j.compound), x - s, y - s, s * 2, s * 2); }
-    else { const s = 9 / px * 4.2 / 2; ctx.drawImage(this.glowSprite(color), x - s * 2, y - s * 2, s * 4, s * 4); }
-    ctx.strokeStyle = '#ffd65a'; ctx.lineWidth = 2.2 / px; ctx.beginPath(); ctx.arc(x, y, 13 / px, 0, Math.PI * 2); ctx.stroke();
-    this.drawFormula(ctx, j.compound, color, x, y - 30 / px, 16);
+    if (px > 1.75 && !this.formulaParticles) { // molecule sprite turns with its motion
+      const s = 18 / px * pop; ctx.save(); ctx.translate(x, y); ctx.rotate(this.reduced ? 0 : t * .6 + (j.heading || 0) * .3); ctx.drawImage(this.moleculeSprite(j.compound), -s, -s, s * 2, s * 2); ctx.restore();
+    } else { const s = 9 / px * 4.2 / 2 * pop; ctx.drawImage(this.glowSprite(color), x - s * 2, y - s * 2, s * 4, s * 4); }
+    ctx.strokeStyle = '#ffd65a'; ctx.lineWidth = 2.2 / px; ctx.beginPath(); ctx.arc(x, y, 13 / px * pop, 0, Math.PI * 2); ctx.stroke();
+    if (!this.reduced) { ctx.strokeStyle = 'rgba(255,214,90,.5)'; ctx.lineWidth = 1.2 / px; ctx.beginPath(); ctx.arc(x, y, 19 / px * pop, t * 2, t * 2 + 1.4); ctx.stroke(); ctx.beginPath(); ctx.arc(x, y, 19 / px * pop, t * 2 + Math.PI, t * 2 + Math.PI + 1.4); ctx.stroke(); }
+    this.drawFormula(ctx, j.compound, color, x, y - 30 / px * pop, 16);
     ctx.restore();
   };
 
