@@ -1,0 +1,12 @@
+{
+  "renderer": "2.5d",
+  "files": {
+    "index.html": "5567be5d6afe305029617af28bf7fc348749634fd26c66fc4f8abb6ed013699c",
+    "original.css": "ab90894b0ea5cbb5db2b1224443e11bffe968c8b1b1c6d79deddcc422cab6bbd",
+    "clarity.css": "1d913ef9bb0a760d59e6b17d109f742bc14a37636c305fbe4e41840faaabdf09",
+    "model.js": "7f19b9e69627aadef7fefe330e27fbc3ba643a2c3f04adb72ef8e337aec75dd0",
+    "scene.js": "f9672e6b70b7ec7727ee866d26e0a15db156b5549822c6779507f8d47495bb7a",
+    "clarity.js": "7831fe40164daa4659688a98402aabb5a225115249b49a2a55a7bdebeb47b3f6",
+    "app.js": "829b769987bdf617fd7a40d4ed3c4e8523944ee6b27e33d5caf2913f20b012ff"
+  }
+}
