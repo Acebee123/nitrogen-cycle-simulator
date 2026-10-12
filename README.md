@@ -4,11 +4,23 @@ A full-screen, living cross-section of a field: sky, bean plant, cow, soil, root
 
 ## Standalone HTML
 
-Open **dist-offline/Nitrogen-Cycle.html** in a browser that allows local HTML JavaScript. Share this one file through WhatsApp, not the website's index.html. It is about 0.9 MiB and needs neither a server nor internet. A Content Security Policy blocks all network connections; sound is generated locally.
+Open **dist-offline/Nitrogen-Cycle.html** in a browser that allows local HTML JavaScript. Share this one file through WhatsApp, not the website's index.html. It is about 1 MiB and needs neither a server nor internet. A Content Security Policy blocks all network connections; sound is generated locally.
+
+## Journey mode — follow one nitrogen atom
+
+Tap the **journey** button (the winding path, next to play) to pause the live model and follow a single glowing nitrogen atom round the cycle, station by station:
+
+air → root nodule (fixation) → Nitrosomonas → Nitrobacter → root hair → leaf → cow → waste → decomposers → denitrifiers → back to the air.
+
+At each station the camera frames the spot and a **microscope lens** opens in the landscape, linked to it by a beam of light. Inside the lens the reaction plays out with real atoms — inside the bacterium, nodule, root hair, leaf cell, gut or soil — while the card shows a one-line caption that follows the animation, the equation lighting up step by step, who does it, what it needs, and (tap “=”) the balanced equation. The atom's formula label changes as it is transformed.
+
+- Advance by tapping the atom or the next-stop beacon, the → button, or **→ / Page Down / Space** (works with a presentation clicker). **← / Page Up** goes back, **R** or tapping the lens replays, **Esc** leaves.
+- Side trips: **Lightning** and **Fertilizer** (Haber–Bosch factory → pellet) from the air station, **Leaching** (groundwater → algae bloom) once nitrate forms. Each rejoins the main path.
+- The journey is a scripted story; it never changes the live model's pools.
 
 ## Using it
 
-- **Floating tab bar (icons only):** play/pause · cycle map · weather & inputs · soil conditions & settings · microbes · explore/zoom · sound.
+- **Floating tab bar (icons only):** play/pause · journey · cycle map · weather & inputs · soil conditions & settings · microbes · explore/zoom · sound.
 - **Dots / formulas toggle (top left, or press F):** switches every particle in the scene between glowing dots and chemical formula text — NH₄⁺, NO₂⁻, NO₃⁻, N₂ and R–NH₂ for organic nitrogen. The choice is remembered.
 - **Cycle map:** a live diagram of the pools (glow grows with the pool) and pathways (arrow speed follows the real rate). Tap an arrow to focus that process.
 - **Focus:** the scene dims except the chosen pathway, shows its route with direction arrows and opens a short card with the reaction, conditions, responsible microbes and live rate. Step through all ten processes with ‹ ›.
@@ -29,12 +41,12 @@ npm test                # science, packaging, startup and both builds' interacti
 npm run test:responsive # the interaction suite at eight screen sizes
 ```
 
-Source lives in `src/`: `model.js` (the unchanged scientific engine), `content.js` (short teaching text and microbe cards), `scene.js` (layout, camera, gestures, labels), `art.js` (the drawn landscape), `flows.js` (particles, pools and process effects), `app.js` (interface) and `styles.css`. Keep the whole `dist-web` folder together for hosting. The Vercel configuration remains ready; nothing has been deployed.
+Source lives in `src/`: `model.js` (the unchanged scientific engine), `content.js` (short teaching text and microbe cards), `scene.js` (layout, camera, gestures, labels), `art.js` (the drawn landscape), `flows.js` (particles, pools and process effects), `journey.js` (journey stations and the microscope-lens animations), `app.js` (interface) and `styles.css`. Keep the whole `dist-web` folder together for hosting. The Vercel configuration remains ready; nothing has been deployed.
 
 ## Quick manual check
 
 1. Turn off internet and open the standalone file. The landscape appears straight away.
-2. Open the cycle map and tap a few arrows; step through with ‹ ›. Toggle dots/formulas.
+2. Start the journey and step through all eleven stations with →; try each side trip. Then open the cycle map, tap a few arrows and toggle dots/formulas.
 3. Try lightning, rain, grow, dead leaves and a fertilizer dose; change moisture and microbe activity.
 4. Open the microbes panel, view each card and use **Show me**.
 5. Check a phone in portrait and landscape, a tablet and a desktop.

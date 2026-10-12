@@ -46,6 +46,7 @@
     return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u];
   }
   P.pointAt = pointAt;
+  P.buildPath = buildPath;
 
   // Waypoints for one transfer. `stations` mark where the compound changes.
   P.waypoints = function (f) {
@@ -288,7 +289,7 @@
     for (const key of keys) {
       const list = this.ions.pools[key], compound = key === 'air' ? 'N₂' : key === 'ammonium' ? 'NH₄⁺' : key === 'nitrite' ? 'NO₂⁻' : 'NO₃⁻';
       const color = COLORS[compound], sprite = molecule ? this.moleculeSprite(compound) : this.glowSprite(color);
-      const base = key === 'air' ? .4 : key === 'leached' ? .55 : .62;
+      const base = (key === 'air' ? .4 : key === 'leached' ? .55 : .62) * (this.journey ? .45 : 1);
       const every = this.formulaParticles ? (key === 'air' ? 2 : 3) : 1; // fewer words, same proportions
       for (let i = 0; i < list.length; i += every) {
         const ion = list[i];
@@ -384,8 +385,10 @@
     m.fillStyle = 'rgba(3,10,9,.66)'; m.fillRect(0, 0, mw, mh);
     const [a, , , d, e, f] = worldTransform; m.setTransform(a / 2, 0, 0, d / 2, e / 2, f / 2); m.globalCompositeOperation = 'destination-out';
     const hole = (x, y, r) => m.drawImage(this.holeSprite, x - r, y - r, r * 2, r * 2);
-    for (const [x, y, r] of this.revealCircles(this.selected)) hole(x, y, r);
-    for (const fr of this.focusCache || []) { const pts = fr.route.samples; for (let i = 0; i < pts.length; i += 5) hole(pts[i][0], pts[i][1], 44); }
+    const circles = this.journey ? this.journey.reveal : this.revealCircles(this.selected);
+    const routes = this.journey ? (this.journey.route ? [{ route: this.journey.route }] : []) : (this.focusCache || []);
+    for (const [x, y, r] of circles) hole(x, y, r);
+    for (const fr of routes) { const pts = fr.route.samples; for (let i = 0; i < pts.length; i += 5) hole(pts[i][0], pts[i][1], 44); }
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = this.focusFade; ctx.drawImage(this.mask, 0, 0, c.width, c.height); ctx.restore();
     void t;
   };
@@ -419,13 +422,15 @@
     // eased visual state
     for (const key of Object.keys(TYPICAL)) { const want = (m.rates[key] || 0) / TYPICAL[key]; const cur = this.smoothRates[key] || 0; this.smoothRates[key] = cur + (want - cur) * (1 - Math.exp(-dt * 3)); }
     this.stormKick = Math.max(0, (this.stormKick || 0) - dt);
-    const stormTarget = m.rain > 0 ? 1 : this.stormKick > 0 ? .7 : 0;
+    const stormTarget = m.rain > 0 || (this.journey && this.journey.storm) ? 1 : this.stormKick > 0 ? .7 : 0;
+    this.wetLevel = (this.wetLevel || 0) + ((this.journey && this.journey.wet ? 1 : 0) - (this.wetLevel || 0)) * (1 - Math.exp(-dt * 1.4));
     this.storm += (stormTarget - this.storm) * (1 - Math.exp(-dt * 1.5));
-    this.focusFade += ((this.selected ? 1 : 0) - this.focusFade) * (1 - Math.exp(-dt * 6));
+    this.focusFade += ((this.selected || this.journey ? 1 : 0) - this.focusFade) * (1 - Math.exp(-dt * 6));
     this.flash = Math.max(0, this.flash - dt * 2.6); this.shake = Math.max(0, this.shake - dt);
     this.plantGlow = Math.max(0, this.plantGlow - dt * .5);
     if (this.inputPulse) this.inputPulse.remaining = Math.max(0, this.inputPulse.remaining - dt);
     if (this.bolt) { this.bolt.t += dt; if (this.bolt.t > this.bolt.life) this.bolt = null; }
+    this.journeyClock = (this.journeyClock || 0) + dt;
 
     // particles advance with simulation time; fertilizer also animates while paused
     let inStem = 0;
@@ -441,7 +446,7 @@
     }
     this.particles = this.particles.filter(p => p.progress < 1);
     this.vascular += ((inStem ? 1 : 0) - this.vascular) * (1 - Math.exp(-dt * 4));
-    for (const e of this.effects) e.t += playing ? simDt : (e.type === 'nox' ? 0 : dt);
+    for (const e of this.effects) e.t += playing ? simDt : (e.type === 'nox' && !this.journey ? 0 : dt);
     this.effects = this.effects.filter(e => e.t < e.dur);
     for (const l of this.fallingLeaves) {
       if (!playing) break;
@@ -479,7 +484,7 @@
     this.drawPlant(ctx, t);
     this.drawGrass(ctx, t, false);
     this.drawFallingLeaves(ctx);
-    for (const p of this.particles) if (p.progress >= 0 && !(this.focusFade > .05 && this.processMatch(p.recipe.process))) this.drawParticle(ctx, p, false);
+    if (!this.journey) for (const p of this.particles) if (p.progress >= 0 && !(this.focusFade > .05 && this.processMatch(p.recipe.process))) this.drawParticle(ctx, p, false);
     this.drawEffects(ctx, t, false);
     this.drawRain(ctx, t, this.storm);
     this.drawBolt(ctx);
@@ -491,7 +496,8 @@
     if (this.focusFade > .01) {
       this.drawSpotlight(ctx, wt, t);
       ctx.setTransform(...wt);
-      this.drawGuides(ctx, t);
+      if (this.journey) { this.drawJourney(ctx, this.journeyClock); this.drawEffects(ctx, t, true); }
+      else this.drawGuides(ctx, t);
       for (const p of this.particles) if (p.progress >= 0 && this.processMatch(p.recipe.process)) this.drawParticle(ctx, p, true);
       this.drawEffects(ctx, t, true);
     }
@@ -509,6 +515,32 @@
       ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(r.anchor[0], r.anchor[1]); ctx.stroke();
       ctx.fillStyle = '#fffaf0'; ctx.beginPath(); ctx.arc(r.anchor[0], r.anchor[1], 2, 0, TAU); ctx.fill();
     }
+  };
+
+
+  /* ---------- journey: the travelling atom ---------- */
+  P.drawJourney = function (ctx, t) {
+    const j = this.journey; if (!j || !j.pos) return;
+    const px = this.s * this.camera.zoom, color = this.particleColor(j.compound), [x, y] = j.pos;
+    ctx.save(); ctx.lineCap = 'round';
+    if (j.route) { // the road ahead
+      ctx.globalAlpha = .9; ctx.beginPath(); j.route.samples.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+      ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 6 / px; ctx.stroke();
+      ctx.setLineDash([2 / px, 11 / px]); ctx.lineDashOffset = this.reduced ? 0 : -t * 40 / px; ctx.strokeStyle = 'rgba(255,240,190,.9)'; ctx.lineWidth = 2.6 / px; ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (j.next) { // a gentle beacon on the next stop
+      const r = (16 + (this.reduced ? 0 : (t * 1.2 % 1) * 12)) / px; ctx.globalAlpha = .7 * (1 - (this.reduced ? 0 : t * 1.2 % 1));
+      ctx.strokeStyle = '#ffe9a3'; ctx.lineWidth = 2 / px; ctx.beginPath(); ctx.arc(j.next[0], j.next[1], r, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.globalAlpha = j.fade;
+    const pulse = this.reduced ? 1 : 1 + Math.sin(t * 4) * .1, halo = 30 / px * pulse;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, halo); g.addColorStop(0, 'rgba(255,220,110,.8)'); g.addColorStop(.45, 'rgba(255,214,90,.28)'); g.addColorStop(1, 'rgba(255,214,90,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, halo, 0, Math.PI * 2); ctx.fill();
+    if (px > 1.75 && !this.formulaParticles) { const s = 18 / px; ctx.drawImage(this.moleculeSprite(j.compound), x - s, y - s, s * 2, s * 2); }
+    else { const s = 9 / px * 4.2 / 2; ctx.drawImage(this.glowSprite(color), x - s * 2, y - s * 2, s * 4, s * 4); }
+    ctx.strokeStyle = '#ffd65a'; ctx.lineWidth = 2.2 / px; ctx.beginPath(); ctx.arc(x, y, 13 / px, 0, Math.PI * 2); ctx.stroke();
+    this.drawFormula(ctx, j.compound, color, x, y - 30 / px, 16);
+    ctx.restore();
   };
 
   P.drawInputPulse = function (ctx) {

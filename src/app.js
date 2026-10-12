@@ -47,7 +47,10 @@
     off: '<rect x="4" y="8" width="13" height="8" rx="4"/><path d="M3 3l18 18"/>'
   };
   const svg = (name, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}">${ICONS[name] || ''}</svg>`;
-  const tokenColor = tok => COLORS[tok] || (tok === 'groundwater' ? '#6cc4e8' : '#d9a066');
+  const WORD_COLORS = { groundwater: '#6cc4e8', root: '#4fe3e1', 'algae bloom': '#9fe870', 'plant protein': '#9fe870', 'amino acids': '#9fe870', 'cow protein': '#9fe870', urea: '#d9a066', dung: '#d9a066', 'NH₃': '#ffc857', NO: '#e9a487', 'N₂O': '#c9a8ff', 'NO₂': '#d98a4a', 'HNO₃': '#4fe3e1', 'H₂': '#eef1f5', 'O₂': '#ff9b8f', 'NH₄NO₃': '#f4f1e6', N: '#c9a8ff', O: '#ff9b8f', H: '#eef1f5' };
+  const tokenColor = tok => COLORS[tok] || WORD_COLORS[tok] || '#d9a066';
+  const NEEDS = { oxygen: ['O₂', 'Needs oxygen'], water: [null, 'Needs moisture', 'drop'], microbes: [null, 'Needs active microbes', 'microbes'], waterlogged: [null, 'Happens in waterlogged soil', 'soak'], light: [null, 'Needs sunlight', 'sun'] };
+  const needsHTML = list => list.map(n => `<span title="${NEEDS[n][1]}" aria-label="${NEEDS[n][1]}">${NEEDS[n][0] || svg(NEEDS[n][2], 16)}</span>`).join('');
   // A coloured chip with the chemical formula. Organic nitrogen (R–NH₂) gets a
   // one-word hint so living protein and dead matter stay distinguishable.
   const HINT = { 'Protein N': 'protein', 'Organic N': 'dead', groundwater: 'groundwater' };
@@ -66,19 +69,21 @@
     const box = el => (el && !el.hidden && el.getBoundingClientRect) ? el.getBoundingClientRect() : null;
     const hud = box($('hud')); if (hud && hud.height > 0 && hud.bottom < H * .4) I.top = hud.bottom + 6;
     let bottomEdge = H;
-    for (const el of [document.querySelector('.tabbar'), $('sheet'), $('explanation')]) {
-      const r = box(el); if (!r || r.height <= 0) continue;
+    for (const el of [document.querySelector('.tabbar'), $('sheet'), $('explanation'), $('journey-card')]) {
+      const r = box(el); if (!r || r.height <= 0 || (el.classList.contains('tabbar') && document.querySelector('.app').classList.contains('journey-on') && W < 700)) continue;
+      const card = el.id === 'explanation' || el.id === 'journey-card';
       if (r.top > H * .45) bottomEdge = Math.min(bottomEdge, r.top);
-      else if (el.id === 'explanation' && r.left > W * .45) I.right = W - r.left + 6;
-      else if (el.id === 'explanation') I.top = Math.max(I.top, r.bottom + 6);
+      else if (card && r.left > W * .45) I.right = Math.max(I.right, W - r.left + 6);
+      else if (card) I.top = Math.max(I.top, r.bottom + 6);
     }
     I.bottom = H - bottomEdge + 6;
     scene.insets = I;
   }
-  scene.onLayout = () => updateInsets();
+  scene.onLayout = () => { updateInsets(); if (typeof journey !== 'undefined' && journey.active) journey.frameCamera(); };
 
   /* ---------- panels ---------- */
   function openPanel(name) {
+    if (journey.active && name && openPanelName !== name) exitJourney();
     openPanelName = openPanelName === name ? null : name;
     $('sheet').hidden = !openPanelName;
     for (const p of ['cycle', 'act', 'soil', 'microbes', 'view']) $('panel-' + p).hidden = p !== openPanelName;
@@ -108,8 +113,7 @@
     $('info-name').textContent = p.title;
     $('info-eq').innerHTML = equationHTML(p); $('info-eq').dataset.proc = id;
     $('info-description').textContent = p.line;
-    const needs = { oxygen: ['O₂', 'Needs oxygen'], water: [svg('drop', 16), 'Needs moisture'], microbes: [svg('microbes', 16), 'Needs active microbes'], waterlogged: [svg('soak', 16), 'Happens in waterlogged soil'] };
-    $('info-needs').innerHTML = p.needs.map(n => `<span title="${needs[n][1]}" aria-label="${needs[n][1]}">${needs[n][0]}</span>`).join('');
+    $('info-needs').innerHTML = needsHTML(p.needs);
     $('info-agents').innerHTML = p.agents.map(a => `<button data-agent="${a}" aria-label="${MICROBES[a].name}" title="${MICROBES[a].name}"><span class="thumb" data-image="${MICROBES[a].image}"></span></button>`).join('');
     $('info-agents').querySelectorAll ? $('info-agents').querySelectorAll('[data-agent]').forEach(b => b.addEventListener('click', () => showMicrobe(b.dataset.agent))) : 0;
     const idx = CYCLE.indexOf(id === 'nitri1' || id === 'nitri2' ? 'nitrification' : id === 'leaves' ? 'litter' : id);
@@ -130,6 +134,7 @@
   on($('close-info'), 'click', whole);
   all('[data-info]').forEach(el => on(el, 'click', () => { if (el.dataset.microbe) showMicrobe(el.dataset.microbe); else focus(el.dataset.info); }));
   scene.onInspect = (process, kind) => {
+    if (journey.active) { if (kind === 'traveller') journey.next(); else if (kind === 'lens') journey.replay(); else if (MICROBES[kind]) showMicrobe(kind); return; }
     if (!process) { if (openPanelName) openPanel(openPanelName); else if (selected) whole(); return; }
     if (MICROBES[kind]) showMicrobe(kind); else focus(process);
   };
@@ -137,15 +142,14 @@
   /* ---------- microbes ---------- */
   function showMicrobe(id) {
     const m = MICROBES[id]; if (!m) return;
-    focus(m.process, { keepMicrobe: true, noCamera: true });
-    scene.inspectedMicrobe = id;
+    if (!journey.active) { focus(m.process, { keepMicrobe: true, noCamera: true }); scene.inspectedMicrobe = id; }
     $('microbe-name').textContent = m.name; $('microbe-group').textContent = m.role; $('microbe-description').textContent = m.description;
     $('microbe-habitat').textContent = m.habitat; $('microbe-note').textContent = m.note;
     $('microbe-reaction').innerHTML = chem(m.input) + '<span class="arrow">→</span>' + chem(m.output);
     const pic = $('microbe-picture'); pic.dataset.image = m.image; pic.dataset.profile = id; pic.setAttribute('aria-label', 'Illustration: ' + m.name);
     $('microbe-reference').setAttribute('href', m.source);
     all('[data-pick]').forEach(b => b.setAttribute('aria-current', String(b.dataset.pick === id)));
-    scene.focusMicrobe(id);
+    if (!journey.active) scene.focusMicrobe(id);
     if (!$('microbe-dialog').open) $('microbe-dialog').showModal();
   }
   all('[data-microbe]').forEach(b => { if (!b.classList.contains('tag')) on(b, 'click', () => showMicrobe(b.dataset.microbe)); });
@@ -154,6 +158,7 @@
   on($('locate-microbe'), 'click', () => {
     const id = $('microbe-picture').dataset.profile; if (!MICROBES[id]) return;
     $('microbe-dialog').close(); if (openPanelName) openPanel(openPanelName);
+    if (journey.active) exitJourney(); scene.inspectedMicrobe = id;
     scene.focusMicrobe(id); announce(MICROBES[id].name.split(' ')[0] + ' — circled in the soil');
   });
   on($('view-bacteria'), 'click', () => showMicrobe('rhizobium'));
@@ -164,6 +169,7 @@
     if (e.key !== 'Escape') return;
     if ($('microbe-dialog').open) { $('microbe-dialog').close(); e.preventDefault(); }
     else if ($('about-dialog').open) { $('about-dialog').close(); e.preventDefault(); }
+    else if (journey.active) exitJourney();
     else if (openPanelName) openPanel(openPanelName);
     else whole();
   });
@@ -198,7 +204,7 @@
     if (audio) audio.setWeather(model.rain > 0, playing && sound);
     updateUI();
   }
-  on($('play'), 'click', () => setPlaying(!playing));
+  on($('play'), 'click', () => { if (journey.active) { exitJourney(true); return; } setPlaying(!playing); });
   all('[data-speed]').forEach(b => on(b, 'click', () => {
     speed = Number(b.dataset.speed); accumulator = 0;
     all('[data-speed]').forEach(x => x.setAttribute('aria-checked', String(x === b)));
@@ -366,6 +372,77 @@
     } catch (err) { announce('Sound is unavailable in this browser'); }
   });
 
+  /* ---------- journey: follow one nitrogen atom, station by station ---------- */
+  const { STATIONS } = NitrogenJourney;
+  const journey = new NitrogenJourney.JourneyController(scene);
+  journey.colors = tokenColor;
+  const ORGANISM = { plant: ['plant', 'Bean plant'], cow: ['cow', 'Cow'] };
+  let journeyWasPlaying = true, jStep = null, jHl = null;
+  function enterJourney() {
+    if (journey.active) return;
+    if (openPanelName) openPanel(openPanelName);
+    if ($('microbe-dialog').open) $('microbe-dialog').close();
+    whole(); journeyWasPlaying = playing; setPlaying(false);
+    journey.start();
+    document.querySelector('.app').classList.add('journey-on'); $('journey').setAttribute('aria-pressed', 'true');
+    $('journey-card').hidden = false; renderJourney(); updateInsets(); journey.frameCamera();
+    announce('Follow one nitrogen atom · tap it or press →');
+  }
+  function exitJourney(resume) {
+    if (!journey.active) return;
+    journey.stop();
+    document.querySelector('.app').classList.remove('journey-on'); $('journey').setAttribute('aria-pressed', 'false');
+    $('journey-card').hidden = true; $('j-detail').hidden = true; $('j-detail-btn').setAttribute('aria-expanded', 'false'); updateInsets();
+    setPlaying(resume === undefined ? journeyWasPlaying : resume);
+  }
+  function journeyEq(st, hl) {
+    return st.eq.map((tok, i) => {
+      const later = hl !== null && hl >= 0 && i > hl, cls = later ? ' dim' : i === hl ? ' now' : '';
+      if (tok === '→' || tok === '+') return `<span class="arrow${later ? ' dim' : ''}">${tok}</span>`;
+      return chem(tok).replace('class="chem"', 'class="chem' + cls + '"');
+    }).join('');
+  }
+  function renderJourney() {
+    const st = journey.station(), i = journey.index, n = journey.path.length;
+    $('j-step').textContent = (i + 1) + ' / ' + n + (st.branch ? ' · side trip' : '');
+    $('j-title').textContent = st.title;
+    $('j-progress').innerHTML = journey.path.map((id, k) => `<i class="${k < i ? 'done' : ''}${k === i ? ' now' : ''}${STATIONS[id].branch ? ' side' : ''}"></i>`).join('');
+    $('j-who').innerHTML = st.who.map(w => MICROBES[w] ? `<button data-jmicrobe="${w}" aria-label="${MICROBES[w].name}" title="${MICROBES[w].name}"><span class="thumb" data-image="${MICROBES[w].image}"></span></button>` : `<span class="org" title="${ORGANISM[w][1]}" aria-label="${ORGANISM[w][1]}">${svg(ORGANISM[w][0], 18)}</span>`).join('');
+    $('j-who').querySelectorAll('[data-jmicrobe]').forEach(b => b.addEventListener('click', () => showMicrobe(b.dataset.jmicrobe)));
+    $('j-needs').innerHTML = needsHTML(st.needs);
+    $('j-detail').textContent = st.detail;
+    let branches = '';
+    if (st.finale) branches = `<button class="j-branch primary" data-jact="restart">${svg('fix', 17)}Go round again</button><button class="j-branch" data-jact="explore">${svg('sun', 17)}Explore live</button>`;
+    else if (st.dead) branches = `<button class="j-branch primary" data-jact="next">↩ Back to the main path</button>`;
+    else branches = journey.branchHere().map(b => `<button class="j-branch" data-branch="${b.id}" aria-label="Side trip: ${b.label}">${svg(b.icon, 17)}${b.label}</button>`).join('');
+    $('j-branches').innerHTML = branches;
+    $('j-branches').querySelectorAll('[data-branch]').forEach(b => b.addEventListener('click', () => journey.takeBranch(b.dataset.branch)));
+    $('j-branches').querySelectorAll('[data-jact]').forEach(b => b.addEventListener('click', () => { const a = b.dataset.jact; if (a === 'restart') journey.restart(); else if (a === 'explore') exitJourney(true); else journey.next(); }));
+    $('j-prev').disabled = i === 0; $('j-next').disabled = i === n - 1 && journey.phase === 'station';
+    jStep = null; jHl = null;
+  }
+  // The reaction plays in the microscope lens on the scene; the card follows its captions.
+  function updateJourneyText() {
+    const st = journey.station(), travelling = journey.phase === 'travel', step = travelling ? -1 : journey.step;
+    if (step !== jStep) { jStep = step; $('j-caption').textContent = travelling ? (st.transit || 'On the way to: ' + st.title.toLowerCase() + '…') : st.captions[step] || ''; }
+    const hl = travelling ? 0 : st.hl[Math.max(0, step)];
+    if (hl !== jHl) { jHl = hl; $('j-eq').innerHTML = journeyEq(st, hl); }
+  }
+  journey.onChange = () => { renderJourney(); updateInsets(); };
+  on($('journey'), 'click', () => journey.active ? exitJourney() : enterJourney());
+  on($('j-exit'), 'click', () => exitJourney());
+  on($('j-next'), 'click', () => journey.next());
+  on($('j-prev'), 'click', () => journey.prev());
+  on($('j-replay'), 'click', () => journey.replay());
+  on($('j-detail-btn'), 'click', () => { const open = $('j-detail').hidden; $('j-detail').hidden = !open; $('j-detail-btn').setAttribute('aria-expanded', String(open)); });
+  on(document, 'keydown', e => { // presentation clickers send arrows / Page Up / Page Down
+    if (!journey.active || $('microbe-dialog').open || (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName || ''))) return;
+    const k = e.key, onButton = e.target && e.target.tagName === 'BUTTON';
+    if (k === 'ArrowRight' || k === 'PageDown' || (k === ' ' && !onButton)) { if (e.preventDefault) e.preventDefault(); journey.next(); }
+    else if (k === 'ArrowLeft' || k === 'PageUp') { if (e.preventDefault) e.preventDefault(); journey.prev(); }
+    else if (k === 'r' || k === 'R') journey.replay();
+  });
+
   /* ---------- live readouts ---------- */
   function weatherState() {
     if (!playing) return ['pause', 'Simulation paused'];
@@ -402,7 +479,9 @@
   function frame(now) {
     const dt = previous ? Math.min((now - previous) / 1000, .1) : 0; previous = now;
     if (playing && !document.hidden) { accumulator += dt * .5 * speed; while (accumulator >= .05 - 1e-10) { model.step(.05); accumulator -= .05; } scene.ingest(model.drainFlows()); }
+    if (journey.active) { journey.update(dt); updateJourneyText(); }
     scene.speed = speed; scene.render(dt, playing && !document.hidden);
+    if (journey.active) journey.drawOverlay(scene.ctx);
     uiClock += dt; if (uiClock > .2) { uiClock = 0; updateUI(); }
     raf = requestAnimationFrame(frame);
   }
@@ -419,7 +498,8 @@
       view: scene.viewStats(), particleCount: scene.particles.length, selected, panel: openPanelName,
       particleProcesses: [...new Set(scene.particles.map(p => p.recipe.process))],
       focusRoutes: scene.focusRoutes().map(({ from, to, process }) => ({ from, to, process })),
-      ions: scene.ions ? Object.fromEntries(Object.entries(scene.ions.pools).map(([k, v]) => [k, v.length])) : {}, sound, particleStyle: formulaParticles ? 'formula' : 'dots'
+      ions: scene.ions ? Object.fromEntries(Object.entries(scene.ions.pools).map(([k, v]) => [k, v.length])) : {}, sound, particleStyle: formulaParticles ? 'formula' : 'dots',
+      journey: journey.active ? { station: journey.path[journey.index], index: journey.index, total: journey.path.length, phase: journey.phase, compound: journey.compound, path: journey.path.slice(), animT: journey.animT, pos: scene.journey && scene.journey.pos ? scene.journey.pos.slice() : null, lens: journey.lens ? { ...journey.lens } : null, caption: $('j-caption').textContent } : null
     }), writable: false
   });
 })();

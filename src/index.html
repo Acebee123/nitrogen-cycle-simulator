@@ -51,6 +51,25 @@
     <div class="stepper"><button id="prev-process" class="icon-btn" aria-label="Previous process"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button><span id="step-count">1 / 10</span><button id="next-process" class="icon-btn" aria-label="Next process"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button></div>
   </section>
 
+  <section id="journey-card" class="card glass journey-card" hidden aria-label="Journey: follow one nitrogen atom">
+    <div class="j-head">
+      <span class="j-badge" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="5" cy="18" r="2.4"/><path d="M7.2 17c4-1 2-6 6-7s5-1 5.5-4"/><path d="M17 3.5h3.5V7"/></svg></span>
+      <div class="j-titles"><div id="j-step" class="j-step">1 / 11</div><h2 id="j-title" tabindex="-1">Atmosphere</h2></div>
+      <button id="j-exit" class="icon-btn" aria-label="Leave the journey" title="Leave the journey"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div id="j-progress" class="j-progress" aria-hidden="true"></div>
+    <p id="j-caption" class="j-caption" aria-live="polite"></p>
+    <div id="j-eq" class="equation j-eq"></div>
+    <div class="j-meta"><div id="j-who" class="agents"></div><div id="j-needs" class="needs"></div><button id="j-detail-btn" class="j-detail-btn" aria-expanded="false" aria-controls="j-detail" title="Balanced equation">=</button></div>
+    <div id="j-detail" class="j-detail" hidden></div>
+    <div id="j-branches" class="j-branches"></div>
+    <div class="j-controls">
+      <button id="j-prev" class="icon-btn" aria-label="Previous station" title="Previous (←)"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <button id="j-replay" class="icon-btn" aria-label="Replay this reaction" title="Replay (R)"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.7"/><path d="M4 4v4h4"/></svg></button>
+      <button id="j-next" class="j-next" aria-label="Next station" title="Next (→, Space)"><svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg></button>
+    </div>
+  </section>
+
   <div id="sheet" class="sheet glass" hidden>
     <section class="panel" id="panel-cycle" aria-label="Nitrogen cycle map" hidden>
       <svg id="cycle-map" viewBox="0 0 360 340" role="group" aria-label="Live nitrogen cycle map. Choose a process."></svg>
@@ -112,6 +131,7 @@
 
   <nav class="tabbar glass" aria-label="Simulator controls">
     <button id="play" class="tab" aria-label="Pause simulation" title="Pause"><svg viewBox="0 0 24 24"><path class="pause" d="M8 5v14M16 5v14"/><path class="play" d="M7 4.5v15l12-7.5z"/></svg></button>
+    <button id="journey" class="tab journey-tab" aria-pressed="false" aria-label="Journey: follow one nitrogen atom" title="Journey"><svg viewBox="0 0 24 24"><circle cx="5" cy="18" r="2.4"/><path d="M7.2 17c4-1 2-6 6-7s5-1 5.5-4"/><path d="M17 3.5h3.5V7"/><circle cx="12.5" cy="10.3" r=".9" class="dot"/></svg></button>
     <span class="sep" aria-hidden="true"></span>
     <button class="tab" data-panel="cycle" aria-label="Cycle map" aria-expanded="false" title="Cycle map"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-13.7 5.6"/><path d="M4 12A8 8 0 0 1 17.7 6.4"/><path d="M17 2.5v4h4M7 21.5v-4H3"/><circle cx="12" cy="12" r="2.2"/></svg></button>
     <button class="tab" data-panel="act" aria-label="Weather and inputs" aria-expanded="false" title="Weather &amp; inputs"><svg viewBox="0 0 24 24"><path d="M6 14a4 4 0 1 1 1-7.9A5.5 5.5 0 0 1 17.5 8 3 3 0 0 1 18 14"/><path d="m12.5 11-2.5 4h3l-1.5 5"/></svg></button>
@@ -157,5 +177,5 @@
       <button data-pick="decomposers" aria-label="Bacillus subtilis"><span class="thumb" data-image="bacillus"></span></button>
     </div>
   </dialog>
-</main><script src="model.js"></script><script src="content.js"></script><script src="scene.js"></script><script src="art.js"></script><script src="flows.js"></script><script src="app.js"></script>
+</main><script src="model.js"></script><script src="content.js"></script><script src="scene.js"></script><script src="art.js"></script><script src="flows.js"></script><script src="journey.js"></script><script src="app.js"></script>
 </body></html>

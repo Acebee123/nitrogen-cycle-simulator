@@ -2,7 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),crypto=require('node:crypto');
 const root=path.resolve(__dirname,'..'),src=path.join(root,'src');
 const read=f=>fs.readFileSync(path.join(src,f),'utf8').replace(/\r\n/g,'\n'),hash=b=>crypto.createHash('sha256').update(b).digest('hex');
-const scripts=['model.js','content.js','scene.js','art.js','flows.js','app.js'],files=['styles.css',...scripts];
+const scripts=['model.js','content.js','scene.js','art.js','flows.js','journey.js','app.js'],files=['styles.css',...scripts];
 const mime=f=>f.endsWith('.jpg')||f.endsWith('.jpeg')?'image/jpeg':f.endsWith('.webp')?'image/webp':'image/png';
 function withStartupNotice(html){
  return html.replace('<main class="app">',()=>read('startup-notice.html')+'\n<main class="app">').replace('</body>',()=>'<script data-source="startup-check.js">'+read('startup-check.js')+'</script>\n</body>');

@@ -227,7 +227,55 @@ dialog{color:var(--text)}
   .glass-dialog{padding:18px}
   .tag{font-size:11px;padding:3px 8px}
 }
-@media (max-width:360px){.tab{width:38px;height:38px}.tabbar{gap:0;padding:4px}.legend>span:nth-child(n+5){display:none}}
+@media (max-width:360px){.tab{width:36px;height:36px}.tab svg{width:21px;height:21px}.tabbar{gap:0;padding:4px}.legend>span:nth-child(n+5){display:none}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media (max-width:700px){.sheet-open .card{display:none!important}}
 @media (max-height:500px){:root{--tab:40px}.status,.legend,.mode-toggle{height:30px;font-size:11px}.legend{gap:8px;padding:0 10px}.hud{top:calc(8px + var(--safe-t))}.tabbar{bottom:calc(8px + var(--safe-b))}.sheet{bottom:calc(var(--tab) + 22px + var(--safe-b));max-height:calc(100% - 70px)}}
+
+/* journey */
+.journey-tab svg .dot{fill:currentColor}
+.journey-tab[aria-pressed="true"]{background:#ffd65a;color:var(--ink)}
+.journey-card{width:360px;padding:14px 14px 10px;display:flex;flex-direction:column;gap:9px;max-height:calc(100% - 100px);overflow:auto}
+.j-head{display:flex;align-items:center;gap:10px}
+.j-badge{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:#ffd65a;color:var(--ink);flex:none}
+.j-badge svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.j-titles{flex:1;min-width:0}
+.j-step{font-size:11px;font-weight:700;letter-spacing:1.2px;color:#ffd65a;font-variant-numeric:tabular-nums}
+.j-titles h2{margin:0;font:600 19px/1.2 Georgia,'Iowan Old Style',serif}
+.j-progress{display:flex;gap:4px;flex-wrap:wrap}
+.j-progress i{flex:1;min-width:10px;height:4px;border-radius:4px;background:rgba(255,255,255,.14);transition:background .3s}
+.j-progress i.done{background:rgba(255,214,90,.55)}
+.j-progress i.now{background:#ffd65a;box-shadow:0 0 8px rgba(255,214,90,.7)}
+.j-progress i.side{background:rgba(108,196,232,.45)}.j-progress i.side.now{background:#6cc4e8}
+.j-caption{margin:0;min-height:40px;font-size:14px;line-height:1.45;color:var(--text)}
+.j-eq{margin:0}
+.j-eq .chem.dim{opacity:.32;box-shadow:none}
+.j-eq .arrow.dim{opacity:.32}
+.j-eq .chem.now{transform:scale(1.06);transition:transform .3s}
+.j-meta{display:flex;align-items:center;gap:8px}
+.j-meta .agents{flex:none}.j-meta .needs{flex:1}
+.agents .org{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:rgba(159,232,112,.2);border:2px solid var(--line-strong)}
+.agents .org svg{width:18px;height:18px;fill:none;stroke:var(--protein);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.j-detail-btn{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.07);font-weight:800;font-size:16px}
+.j-detail-btn[aria-expanded="true"]{background:var(--text);color:var(--ink)}
+.j-detail{font-size:12.5px;color:var(--muted);padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.06);font-variant-numeric:tabular-nums}
+.j-branches{display:flex;gap:8px;flex-wrap:wrap}
+.j-branches:empty{display:none}
+.j-branch{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px 0 8px;border-radius:999px;background:rgba(108,196,232,.16);border:1px solid rgba(108,196,232,.5);font-size:12.5px;font-weight:700;color:#bfe9fb}
+.j-branch svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.j-branch.primary{background:#ffd65a;border-color:#ffd65a;color:var(--ink)}
+.j-controls{display:flex;align-items:center;gap:8px}
+.j-controls .icon-btn{background:rgba(255,255,255,.07);border:1px solid var(--line);width:42px;height:42px}
+.j-next{flex:1;display:grid;place-items:center;height:44px;border-radius:999px;background:#ffd65a;color:var(--ink);transition:transform .15s,opacity .2s}
+.j-next svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.j-next:active{transform:scale(.97)}
+.j-next:disabled,.j-controls .icon-btn:disabled{opacity:.3;cursor:default}
+@media (max-width:700px){
+  .journey-card{top:auto;bottom:calc(10px + var(--safe-b));left:8px;right:8px;width:auto;gap:6px;padding:10px 12px 8px;max-height:46%}
+  .journey-on .tabbar{display:none}
+  .j-caption{font-size:13px;min-height:36px}
+  .j-titles h2{font-size:16px}
+  .j-controls .icon-btn{width:38px;height:38px}.j-next{height:40px}
+}
+@media (max-height:620px) and (min-width:701px){.journey-card{gap:6px}}
+@media (max-height:500px) and (min-width:701px){.journey-card{width:300px;gap:5px;padding:9px 11px 8px;max-height:calc(100% - 70px)}.j-titles h2{font-size:15px}.j-badge{width:28px;height:28px}.j-caption{font-size:12.5px;min-height:0}.j-eq .chem{font-size:12px;padding:3px 8px}.j-controls .icon-btn{width:34px;height:34px}.j-next{height:36px}.j-meta .agents button,.agents .org,.j-detail-btn{width:30px;height:30px}}

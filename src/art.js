@@ -215,7 +215,7 @@
   };
 
   P.drawSoil = function (ctx, t) {
-    const W = this.W, H = this.H, m = this.model.moisture, L = this.L;
+    const W = this.W, H = this.H, m = this.visualMoisture(), L = this.L;
     this.drawLayer(ctx, this.soilLayer);
     // wet soil darkens
     ctx.fillStyle = rgba('#0b1622', clamp((m - .35) * .45, 0, .3));

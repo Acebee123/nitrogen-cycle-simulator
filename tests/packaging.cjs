@@ -3,7 +3,7 @@ const { root, withStartupNotice } = require('../scripts/build.cjs');
 const read = f => fs.readFileSync(path.join(root, f), 'utf8').replace(/\r\n/g, '\n'), hash = b => crypto.createHash('sha256').update(b).digest('hex');
 let n = 0; const check = (ok, message) => { assert.ok(ok, message); n++; };
 const html = read('dist-offline/Nitrogen-Cycle.html'), web = read('dist-web/index.html'), manifest = JSON.parse(read('dist-offline/build-manifest.json'));
-const scripts = ['model.js', 'content.js', 'scene.js', 'art.js', 'flows.js', 'app.js'];
+const scripts = ['model.js', 'content.js', 'scene.js', 'art.js', 'flows.js', 'journey.js', 'app.js'];
 const pictures = ['rhizobium', 'azotobacter', 'nostoc', 'nitrosomonas', 'nitrobacter', 'stutzerimonas', 'bacillus'].map(p => 'microbe-' + p + '.jpg');
 
 check(manifest.renderer === '2.5d' && JSON.parse(read('dist-web/build-manifest.json')).renderer === '2.5d', 'Both outputs are the 2.5D canvas landscape');
@@ -18,10 +18,11 @@ for (const page of [html, web]) {
   check(!/<header\b|<footer\b|<h1\b/.test(page), 'Immersive: no header, footer or page title block');
   const bar = (page.match(/<nav class="tabbar[\s\S]*?<\/nav>/) || [''])[0], buttons = [...bar.matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/g)];
   check(buttons.length >= 7 && buttons.every(b => /aria-label="[^"]+"/.test(b[0]) && /<svg/.test(b[1]) && !b[1].replace(/<svg[\s\S]*?<\/svg>/g, '').trim()), 'Tab bar buttons are icon-only with accessible names');
+  check(/id="journey"/.test(page) && /id="journey-card"/.test(page) && !/id="j-canvas"/.test(page), 'Journey button and card present; the reaction plays in the scene, not the card');
   check(/id="label-mode"/.test(page) && /aria-pressed="false"/.test((page.match(/<button id="label-mode"[^>]*>/) || [''])[0]), 'Dots/formula toggle is present');
 }
 const inline = [...html.matchAll(/<script data-source="([^"]+)">([\s\S]*?)<\/script>/g)];
-check(inline.length === scripts.length + 1, 'Six application scripts plus the startup diagnostic, all inline');
+check(inline.length === scripts.length + 1, 'Seven application scripts plus the startup diagnostic, all inline');
 for (const m of inline) { new vm.Script(m[2]); n++; check(m[2] === read('src/' + m[1]).replace(/<\/script/gi, '<\\/script'), 'Standalone script matches shared source: ' + m[1]); }
 check(withStartupNotice(read('src/index.html')) === web, 'Website uses the shared source template');
 for (const file of ['styles.css', ...scripts]) check(read('src/' + file) === read('dist-web/' + file), 'Website matches shared source: ' + file);

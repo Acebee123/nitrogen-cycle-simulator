@@ -192,7 +192,58 @@ const canvas = $('landscape'), tap = async ([x, y], id = 30) => { await fire(can
     check($('microbe-dialog').open && $('microbe-name').textContent === names[id], 'Tapping each microbe colony in the whole view opens its card: ' + id);
     await fire('close-microbe', 'click'); await fire('close-info', 'click'); advance(1);
   }
+
+  /* journey: follow one nitrogen atom */
+  const jSci = JSON.stringify(state().reservoirs), jTime = state().time, jWasPlaying = state().playing;
+  const J = () => state().journey;
+  await fire('journey', 'click');
+  check(J() && J().station === 'air' && !state().playing && !$('journey-card').hidden && $('journey').attrs['aria-pressed'] === 'true', 'Journey starts in the air, pauses the live model and shows its card');
+  advance(6); check(J().animT > 4 && J().lens && J().lens.r > 40, 'The reaction plays in a microscope lens on the scene');
+  check(J().caption.length > 10 && J().caption === 'So plants and animals cannot use N₂ directly.', 'The card caption follows the animation');
+  const order = ['air', 'fix', 'nit1', 'nit2', 'abs', 'assim', 'feed', 'waste', 'decomp', 'denit', 'return'];
+  const outs = { fix: 'NH₄⁺', nit1: 'NO₂⁻', nit2: 'NO₃⁻', abs: 'NO₃⁻', assim: 'Protein N', feed: 'Protein N', waste: 'Organic N', decomp: 'NH₄⁺', denit: 'N₂', return: 'N₂' };
+  for (let i = 1; i < order.length; i++) {
+    await fire('j-next', 'click');
+    check(J().phase === 'travel', 'The atom travels to the next station: ' + order[i]);
+    advance(4);
+    check(J().station === order[i] && J().phase === 'station' && J().index === i, 'Arrives at station ' + (i + 1) + ': ' + order[i]);
+    advance(7.5);
+    check(J().compound === outs[order[i]], 'At ' + order[i] + ' the atom becomes ' + outs[order[i]]);
+  }
+  check($('j-step').textContent.startsWith('11 / 11') && env.select('[data-jact="restart"]').length === 1, 'The cycle completes back in the air');
+  check(state().time === jTime && JSON.stringify(state().reservoirs) === jSci, 'The journey never changes the live model');
+  await fire(env.select('[data-jact="restart"]')[0], 'click'); check(J().station === 'air' && J().index === 0, 'Go round again restarts the journey');
+  await fire('j-next', 'click'); await fire('j-next', 'click'); check(J().station === 'fix' && J().phase === 'station', 'Next during travel jumps straight to the station');
+  await fire('j-prev', 'click'); check(J().station === 'air', 'Previous goes back a station');
+  await fire(env.document, 'keydown', { key: 'ArrowRight', target: env.document }); advance(4); check(J().station === 'fix', 'Right arrow advances');
+  await fire(env.document, 'keydown', { key: 'PageDown', target: env.document }); advance(4); check(J().station === 'nit1', 'Page Down (presentation clicker) advances');
+  await fire(env.document, 'keydown', { key: 'PageUp', target: env.document }); check(J().station === 'fix', 'Page Up goes back');
+  await fire(env.document, 'keydown', { key: ' ', target: env.document }); advance(4); check(J().station === 'nit1', 'Space advances');
+  advance(6); await fire('j-replay', 'click'); check(J().animT < .5, 'Replay restarts the reaction');
+  advance(3); const lens = J().lens; await tap([lens.cx, lens.cy], 60); check(J().animT < .5 && J().station === 'nit1', 'Tapping the lens replays it');
+  advance(1); const [tx, ty] = toScreen(J().pos); await tap([tx, ty], 61); check(J().phase === 'travel' || J().station === 'nit2', 'Tapping the travelling atom moves on');
+  await fire('j-exit', 'click');
+  check(J() === null && $('journey-card').hidden && state().playing === jWasPlaying, 'Leaving restores the live model as it was');
+  // side trips
+  await fire('journey', 'click'); await fire(env.select('[data-branch="lightning"]')[0], 'click'); advance(4);
+  check(J().station === 'bolt' && J().path.join() === 'air,bolt,rain,abs,assim,feed,waste,decomp,denit,return', 'Lightning side trip joins the path');
+  advance(6); check(J().compound === 'NO', 'Lightning turns N₂ into NO');
+  await fire('j-next', 'click'); advance(4); advance(7); check(J().station === 'rain' && J().compound === 'NO₃⁻', 'Rain turns NO into nitrate');
+  await fire('j-next', 'click'); advance(4); check(J().station === 'abs', 'Lightning side trip rejoins at absorption');
+  await fire(env.document, 'keydown', { key: 'Escape' }); check(J() === null, 'Escape leaves the journey');
+  await fire('journey', 'click'); await fire(env.select('[data-branch="fertilizer"]')[0], 'click'); advance(4); advance(6);
+  check(J().station === 'factory' && J().compound === 'NH₃', 'Fertilizer factory makes ammonia from N₂');
+  await fire('j-next', 'click'); advance(4); advance(6); check(J().station === 'pellet' && J().compound === 'NH₄⁺', 'Pellet dissolves into ammonium');
+  await fire('j-next', 'click'); advance(4); check(J().station === 'nit1', 'Fertilizer side trip rejoins at nitrification');
+  await fire('j-next', 'click'); advance(4); check(J().station === 'nit2' && env.select('[data-branch="leaching"]').length === 1, 'Leaching is offered once nitrate forms');
+  await fire(env.select('[data-branch="leaching"]')[0], 'click'); advance(4); check(J().station === 'leach', 'Leaching side trip starts');
+  await fire('j-next', 'click'); advance(4); check(J().station === 'river' && env.select('[data-jact="next"]').length === 1, 'The atom reaches the river and the card offers the way back');
+  await fire(env.select('[data-jact="next"]')[0], 'click'); advance(4); check(J().station === 'abs', 'Back to the main path at absorption');
+  await fire(env.select('.tab[data-panel="act"]')[0], 'click'); check(J() === null && state().panel === 'act', 'Opening a panel leaves the journey');
+  await fire(env.select('.tab[data-panel="act"]')[0], 'click');
+  await fire('journey', 'click'); await fire('play', 'click'); check(J() === null && state().playing, 'Play leaves the journey and resumes the live model');
+  check(Math.abs(state().balanceError) < 1e-8 && JSON.stringify(state().reservoirs) !== '', 'Nitrogen is still conserved after the journey');
   await fire(env.document, 'keydown', { key: 'Escape' }); check(state().selected === null, 'Escape returns to the whole cycle');
   check(Math.abs(state().balanceError) < 1e-8, 'Nitrogen is conserved at the end');
-  console.log(`PASS: ${assertions} ${offline ? 'standalone' : 'website'} application assertions at ${W}×${H}. Immersive shell, tab panels, cycle map, focus, particle formulas, interventions, sound, view, microbes. Network disabled.`);
+  console.log(`PASS: ${assertions} ${offline ? 'standalone' : 'website'} application assertions at ${W}×${H}. Immersive shell, tab panels, cycle map, focus, particle formulas, interventions, sound, view, microbes, journey. Network disabled.`);
 })().catch(e => { console.error(e); process.exitCode = 1; });

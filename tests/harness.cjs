@@ -44,6 +44,7 @@ function createEnvironment({ width = 1400, height = 620, html }) {
       if (this._classes.has('tabbar')) return r(W / 2 - 170, H - 70, 340, 56);
       if (this.id === 'sheet') return r(W / 2 - 196, H - 70 - 26 - Math.min(340, H * .5), 392, Math.min(340, H * .5));
       if (this.id === 'explanation') return W < 700 ? r(10, H - 70 - 200, W - 20, 190) : r(W - 352, 12, 340, 230);
+      if (this.id === 'journey-card') return W < 700 ? r(8, H - 10 - 230, W - 16, 230) : r(W - 372, 12, 360, 280);
       return r(0, 0, 0, 0);
     }
   }

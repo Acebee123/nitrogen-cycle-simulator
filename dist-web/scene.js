@@ -97,10 +97,13 @@
 
     // Water table: low under drained soil, rising into the root zone as soil
     // waterlogs (visual only; the model uses its moisture value).
-    waterTable(x, moisture = this.model.moisture) {
+    waterTable(x, moisture = this.visualMoisture()) {
       const L = this.L, W = this.W, sat = clamp((moisture - 0.58) / 0.38, 0, 1);
       return lerp(L.G + L.P, L.G + L.P * 0.3, sat) + Math.sin(x / W * TAU * 1.1 + 0.4) * 6 * (1 - sat * 0.5) + (x / W - 0.5) * 12;
     }
+
+    // Journey mode can show waterlogged soil without touching the model.
+    visualMoisture() { const w = this.wetLevel || 0; return lerp(this.model.moisture, Math.max(this.model.moisture, 1), w); }
 
     point(key) {
       const L = this.L;
@@ -198,6 +201,8 @@
       on(canvas, 'pointerup', end); on(canvas, 'pointercancel', end); on(canvas, 'lostpointercapture', end);
       on(canvas, 'click', e => {
         if (this.gestureMoved) return;
+        const overlay = this.overlayHit && this.overlayHit(...local(e));
+        if (overlay) { if (this.onInspect) this.onInspect(null, overlay); return; }
         const hit = this.hitThing(...this.screenToWorld(...local(e)));
         if (this.onInspect) this.onInspect(hit ? hit.process : null, hit ? hit.kind : null);
       });
@@ -211,6 +216,10 @@
 
     hitThing(x, y) {
       const radius = Math.max(26, 24 / (this.s * this.camera.zoom));
+      if (this.journey && this.journey.pos) { // the travelling atom (or the next stop) advances the journey
+        const r = Math.max(30, 36 / (this.s * this.camera.zoom)), j = this.journey;
+        if (Math.hypot(x - j.pos[0], y - j.pos[1]) < r || (j.next && Math.hypot(x - j.next[0], y - j.next[1]) < r)) return { kind: 'traveller', process: null };
+      }
       const spots = [];
       for (const id of MICROBE_ORDER) spots.push([id, MICROBES[id].process, this.microbeLocation(id), radius * (id === 'nostoc' ? 1.3 : 1)]);
       spots.push(['decomposers', 'decomposition', this.L.leafColony, radius]);
@@ -254,7 +263,8 @@
         const kind = el.dataset.thing, microbe = !!MICROBES[kind];
         const targeted = microbe && kind === this.inspectedMicrobe;
         let show;
-        if (microbe) show = targeted; // names appear only for the organism you tapped
+        if (this.journey) show = false; // the journey card names everything
+        else if (microbe) show = targeted; // names appear only for the organism you tapped
         else if (this.selected) show = related.includes(kind);
         else show = el.classList.contains('always');
         return { el, kind, index, show, targeted, rank: targeted ? 0 : related.includes(kind) ? 1 : 2 };
