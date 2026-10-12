@@ -1,8 +1,8 @@
 {
   "name": "nitrogen-cycle-simulator",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "FIELDNOTES nitrogen ecosystem — shared-source standalone HTML and static website",
+  "description": "Immersive nitrogen cycle ecosystem — shared-source standalone HTML and static website",
   "scripts": {
     "build": "node scripts/build.cjs all",
     "build:web": "node scripts/build.cjs web",

@@ -1,124 +1,198 @@
-/* Dependency-free application event tests. This is a DOM harness, not a browser
-   layout test; visual browser verification is reported separately. */
-const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
-const offline=process.argv.includes('offline');
-const elements=new Map(),tags=[],html=fs.readFileSync(__dirname+'/../'+(offline?'dist-offline/Nitrogen-Cycle.html':'dist-web/index.html'),'utf8');
-const viewport={width:1400,height:620},resizeObservers=[];
-const drawing=new Proxy({}, {get:(t,k)=>k==='createLinearGradient'||k==='createRadialGradient'?()=>({addColorStop(){}}):k==='measureText'?()=>({width:10}):t[k]||(()=>{}),set:(t,k,v)=>(t[k]=v,true)});
-class Element{
-  constructor(id,attrs={}){this.id=id;this.attrs=attrs;this.dataset={};this.events={};this.value=attrs.value||'';this.hidden=attrs.hidden!==undefined;this.textContent='';this.width=1400;this.height=620;this.style={};const s=new Set();this.classList={add:x=>s.add(x),remove:x=>s.delete(x),toggle:(x,b)=>b?s.add(x):s.delete(x)};}
-  addEventListener(k,fn){(this.events[k]??=[]).push(fn)}removeEventListener(){}
-  setAttribute(k,v){this.attrs[k]=v}getAttribute(k){return this.attrs[k]}
-  getBoundingClientRect(){return {width:this.id==='landscape'?viewport.width:600,height:this.id==='landscape'?viewport.height:180,left:0,top:0,right:viewport.width,bottom:viewport.height}}
-  getContext(){return drawing}showModal(){this.open=true}close(){this.open=false}
-  set innerHTML(s){this.content=s;for(const match of s.matchAll(/id="([^"]+)"/g))if(!elements.has(match[1]))elements.set(match[1],new Element(match[1]));}get innerHTML(){return this.content||''}
-}
-for(const match of html.matchAll(/<(\w+)\s+([^>]+)>/g)){
-  const attrs={};for(const a of match[2].matchAll(/([\w-]+)="([^"]*)"/g))attrs[a[1]]=a[2];if(/\bhidden\b/.test(match[2]))attrs.hidden='';
-  if(attrs.id||attrs['data-info']){const e=new Element(attrs.id||'label-'+tags.length,attrs);if(attrs.id)elements.set(attrs.id,e);if(attrs['data-info']){e.dataset.info=attrs['data-info'];tags.push(e);}}
-}
-elements.get('scenario').value='healthy';elements.get('speed').value='1';
-const document=new Element('document');document.hidden=false;document.getElementById=id=>{assert.ok(elements.has(id),'Element exists: '+id);return elements.get(id)};document.querySelectorAll=s=>{assert.equal(s,'[data-info]');return tags};document.createElement=()=>new Element('offscreen');
-const audioContexts=[];
-class AudioContext{
-  constructor(){this.sampleRate=20;this.currentTime=0;this.destination={};this.gains=[];this.startedSources=0;audioContexts.push(this);}
-  createGain(){const gain={gain:{value:0,setTargetAtTime(v){this.value=v},setValueAtTime(v){this.value=v},exponentialRampToValueAtTime(v){this.value=v}},connect(){}};this.gains.push(gain);return gain;}
-  createBuffer(c,l){return {getChannelData:()=>new Float32Array(l)}}
-  createBufferSource(){return {connect(){},start:()=>this.startedSources++,stop(){}}}createBiquadFilter(){return {frequency:{value:0,setValueAtTime(){},exponentialRampToValueAtTime(){}},connect(){}}}resume(){return Promise.resolve()}close(){}
-}
-const window=new Element('window');window.AudioContext=AudioContext;
-let nextFrame;const context={console,document,window,devicePixelRatio:1,matchMedia:()=>({matches:false}),ResizeObserver:class{constructor(fn){resizeObservers.push(fn)}observe(){}disconnect(){}},requestAnimationFrame:fn=>(nextFrame=fn,1),cancelAnimationFrame(){},setTimeout:()=>1,clearTimeout(){}};
-vm.createContext(context);
-context.fetch=()=>{throw Error('Network disabled in application QA')};
-const inline=new Map([...html.matchAll(/<script data-source="([^"]+)">([\s\S]*?)<\/script>/g)].map(m=>[m[1],m[2].replace(/<\\\/script/gi,'</script')]));
-for(const file of ['model.js','scene.js','clarity.js','app.js'])vm.runInContext(offline?inline.get(file):fs.readFileSync(__dirname+'/../dist-web/'+file,'utf8'),context,{filename:file});
-let assertions=0,now=100;
-const state=()=>window.nitrogenDiagnostics();
-async function event(id,type='click',value){const e=elements.get(id);if(value!==undefined)e.value=String(value);for(const fn of e.events[type]||[])await fn({target:e});}
-function check(b,msg){assert.ok(b,msg);assertions++;}
-function advance(seconds){for(let i=0;i<seconds*10;i++){now+=100;nextFrame(now)}}
-(async()=>{
-  advance(3);check(state().time>1,'Simulation advances');check(state().particleCount>0,'Positive model flows emit particles');
-  const before=JSON.stringify(state().reservoirs),time=state().time;
-  await event('focus-mode');check(state().selected==='nitrification'&&state().focusRoutes.length===2,'Focus includes both nitrification stages');
-  check(state().time===time&&JSON.stringify(state().reservoirs)===before,'Mode switch preserves scientific state');
-  await event('whole-mode');check(state().mode==='whole'&&state().selected===null,'Whole cycle clears visual focus');
-  await event('play');const paused=state().time;advance(2);check(state().time===paused,'Pause freezes model time');
-  const beforeFertilizer=state();await event('fertilizer','input',40);
-  check(state().inputs===beforeFertilizer.inputs&&JSON.stringify(state().reservoirs)===JSON.stringify(beforeFertilizer.reservoirs),'Selecting a fertilizer dose does not apply it');
-  check(elements.get('fertilizer-status').textContent.includes('+24 NH₄⁺ / +16 NO₃⁻'),'Dose preview displays the real compound split');
-  await event('add-fertilizer');check(state().inputs===40,'Fertilizer control records quantity');check(elements.get('fertilizer-value').textContent==='40 N units','Fertilizer readout updates');
-  check(Math.abs(state().reservoirs.ammonium-beforeFertilizer.reservoirs.ammonium-24)<1e-10&&Math.abs(state().reservoirs.nitrate-beforeFertilizer.reservoirs.nitrate-16)<1e-10,'Fertilizer changes the actual ammonium and nitrate pools');
-  check(state().particleProcesses.includes('fertilizer'),'Applied fertilizer emits real transfer particles while paused');
-  check(state().view.target.zoom>1&&state().time===paused,'Fertilizer focuses the affected soil without advancing paused science');
-  check(elements.get('fertilizer-status').textContent.startsWith('Applied 40 N units'),'Fertilizer confirms the applied amount');
-  advance(1);check(state().time===paused&&state().view.camera.zoom>1,'Fertilizer camera feedback animates while paused');
-  const sitesBefore=state().view.organicSites;await event('leaves');check(state().inputs===48,'Dead leaves add external organic nitrogen');
-  check(Math.abs(state().view.organicSites.plant-sitesBefore.plant-8)<1e-10&&state().view.organicSites.animal===sitesBefore.animal,'Added leaves enter only the plant litter site');
-  check(Math.abs(state().view.organicSites.plant+state().view.organicSites.animal-state().reservoirs.organic)<1e-8,'Separate visual sites share the existing organic nitrogen total');
-  await event('rain');check(state().moisture>.55,'Rain moistens soil');
-  await event('lightning');await event('grow');check(state().mode==='whole','Interventions preserve visualization mode');
-  await event('bacteria','input',0);await event('moisture','input',25);check(state().activity===0&&state().moisture===.25,'Sliders change actual model parameters');
-  await event('speed','change',4);await event('play');advance(1);check(state().time>paused+1.8,'Speed controls bounded model step count');
-  check(state().rates.fixation===0&&state().rates.nitri1===0,'Zero activity stops microbial transfers');
-  check(Math.abs(state().balanceError)<1e-8,'Intervention sequence conserves nitrogen');
-  for(const tag of tags){for(const fn of tag.events.click)fn({target:tag});check(state().selected===tag.dataset.info,'Every scene and process label selects the correct pathway');if(elements.get('microbe-dialog').open)await event('close-microbe');}
-  const fixation=tags.find(x=>x.dataset.info==='fixation');fixation.events.click[0]({target:fixation});check(state().focusRoutes.length===3,'Fixation highlights conversion through nitrate');
-  const fertilizer=tags.find(x=>x.dataset.info==='fertilizer');fertilizer.events.click[0]({target:fertilizer});check(state().focusRoutes.length===2,'Fertilizer highlights both ammonium and nitrate');
-  const litter=tags.find(x=>x.dataset.info==='litter');litter.events.click[0]({target:litter});check(state().focusRoutes.length===2&&state().focusRoutes[0].to!==state().focusRoutes[1].to,'Leaves and waste focus shows separate soil destinations');
-  await event('sound');check(state().sound===true,'Sound toggle enables audio pipeline');await event('lightning');await event('sound');check(state().sound===false,'Sound toggle mutes audio pipeline');
-  await event('model-info');check(elements.get('about-dialog').open,'Model explanation opens');await event('close-about');check(!elements.get('about-dialog').open,'Model explanation closes');
-  await event('scenario','change','fertilized');check(state().time===0&&state().inputs===85,'Fertilized preset resets and records its input');
-  await event('scenario','change','rain');check(state().moisture===.9,'Rainfall preset');
-  await event('scenario','change','healthy');check(state().moisture===.55&&state().inputs===0,'Healthy preset');
-  const audioState=audioContexts[0];audioState.currentTime+=5;await event('sound');const started=audioState.startedSources;
-  check(audioState.gains[0].gain.value===0&&audioState.gains[1].gain.value===0,'Dry weather has no background audio');
-  await event('lightning');check(audioState.startedSources===started+1&&audioState.gains[0].gain.value>.5,'Manual dry lightning plays audible thunder');
-  check(audioState.gains[1].gain.value===0,'Dry thunder does not start rain ambience');
-  audioState.currentTime+=5;advance(.5);check(audioState.gains[0].gain.value===0,'Dry conditions become silent after thunder ends');
-  await event('sound');const mutedStart=audioState.startedSources;await event('lightning');check(audioState.startedSources===mutedStart,'Muted lightning does not start audio');
-  advance(1);await event('restart');check(state().time===0&&state().speed===4,'Restart preserves playback speed');
-  const conservedBefore=JSON.stringify(state().reservoirs),beforeViewTime=state().time;
-  await event('view-roots');check(state().view.target.zoom>1.5,'Root inspection zooms into the original soil');
-  check(state().time===beforeViewTime&&JSON.stringify(state().reservoirs)===conservedBefore,'Inspection cannot change scientific state');
-  await event('play');advance(2);check(state().view.camera.zoom>1.5,'Camera transition works while simulation paused');
-  const savedTime=state().time;await event('view-compounds');advance(1);check(state().time===savedTime,'Paused view transition never advances science');
-  await event('view-water');advance(1);check(state().view.camera.x>state().view.worldWidth*.7,'Groundwater view reaches actual drainage');
-  await event('zoom-in');advance(1);check(state().view.camera.zoom<=3.5,'Zoom maximum is bounded');
-  await event('reset-view');advance(2);check(Math.abs(state().view.camera.zoom-1)<.001,'Reset returns original composition');
-  const canvas=elements.get('landscape');const fire=(type,e)=>{for(const fn of canvas.events[type]||[])fn(e)};
-  let prevented=false;fire('wheel',{clientX:700,clientY:400,deltaY:-180,preventDefault(){prevented=true}});advance(1);check(prevented&&state().view.camera.zoom>1.2,'Wheel zoom handles input and prevents page scroll');
-  fire('pointerdown',{pointerId:1,clientX:700,clientY:400,button:0});const oldX=state().view.target.x;
-  fire('pointermove',{pointerId:1,clientX:630,clientY:400});check(state().view.target.x>oldX,'Drag pans inside the landscape');
-  fire('pointerup',{pointerId:1});
-  fire('pointerdown',{pointerId:2,clientX:600,clientY:350});fire('pointerdown',{pointerId:3,clientX:800,clientY:350});
-  const pinchBefore=state().view.target.zoom;fire('pointermove',{pointerId:3,clientX:900,clientY:350});check(state().view.target.zoom>pinchBefore,'Two-finger pinch increases magnification');
-  fire('pointercancel',{pointerId:2});fire('pointerup',{pointerId:3});
-  await event('focus-mode');advance(1);check(state().view.camera.zoom>1&&state().time===savedTime,'Process focus transitions while paused');
-  await event('whole-mode');advance(1);check(state().selected===null&&state().time===savedTime,'Whole-cycle transition preserves paused model');
-  const beforeResize=JSON.stringify(state().reservoirs);
-  for(const[width,height]of[[366,410],[720,380],[1280,620]]){viewport.width=width;viewport.height=height;for(const callback of resizeObservers)callback();advance(.2);check(state().view.width===width&&state().view.height===height,'Orientation and window resizing update scene dimensions');check(state().time===savedTime&&JSON.stringify(state().reservoirs)===beforeResize,'Resizing preserves scientific state and paused time');check(Number.isFinite(state().view.camera.x)&&state().view.camera.zoom>=1&&state().view.camera.zoom<=3.5,'Resized view remains finite and bounded');}
-  check(!state().view.labels.some(l=>state().view.microbeSites.some(s=>s.kind===l.kind)),'Bacterial names stay hidden before any microorganism is clicked');
-  await event('view-bacteria');check(elements.get('microbe-dialog').open&&elements.get('microbe-name').textContent==='Rhizobium etli','Bacteria button opens a named picture card');
-  const picturePositions=new Set(),microbeState=JSON.stringify(state().reservoirs);
-  for(const[id,name]of[['rhizobium','Rhizobium etli'],['soilFixers','Azotobacter chroococcum'],['nostoc','Nostoc commune'],['nitrosomonas','Nitrosomonas europaea'],['nitrobacter','Nitrobacter winogradskyi'],['denitrifiers','Stutzerimonas stutzeri'],['decomposers','Bacillus subtilis']]){await event('microbe-select','change',id);check(elements.get('microbe-name').textContent===name,'Each microorganism has its own correct scientific name');check(elements.get('microbe-picture').attrs['aria-label'].includes(name),'Every microbe picture has a matching accessible description');picturePositions.add(elements.get('microbe-picture').dataset.image+elements.get('microbe-picture').style.backgroundPosition);check(/^https:\/\//.test(elements.get('microbe-reference').attrs.href),'Each named species has a scientific reference');check(elements.get('info-name').textContent===name,'Scene inspector uses the same specific name');check(state().time===savedTime&&JSON.stringify(state().reservoirs)===microbeState,'Opening picture cards preserves scientific quantities and paused time');}
-  check(picturePositions.size===7,'Each named microorganism displays a distinct illustration');await event('close-microbe');check(!elements.get('microbe-dialog').open,'Picture card closes');
-  const scientificNames={rhizobium:'Rhizobium etli',soilFixers:'Azotobacter chroococcum',nostoc:'Nostoc commune',nitrosomonas:'Nitrosomonas europaea',nitrobacter:'Nitrobacter winogradskyi',denitrifiers:'Stutzerimonas stutzeri',decomposers:'Bacillus subtilis'};
-  check(state().view.microbeSites.length===7&&new Set(state().view.microbeSites.map(s=>s.point.join(','))).size===7,'All seven listed microorganisms have distinct scene locations');
-  for(const[id,name]of Object.entries(scientificNames)){
-    await event('view-bacteria');await event('microbe-select','change',id);await event('locate-microbe');advance(2);
-    const view=state().view,site=view.microbeSites.find(s=>s.id===id),[wx,wy]=site.point,x=(.5+(wx-view.camera.x)*view.camera.zoom/view.worldWidth)*view.width,y=(.5+(wy-view.camera.y)*view.camera.zoom/800)*view.height;
-    check(!elements.get('microbe-dialog').open&&view.microbe===id,'Show in ecosystem closes the card and selects its exact organism');
-    check(x>0&&x<view.width&&y>0&&y<view.height,'Every located organism is inside the visible scene');
-    check(view.labels.some(l=>l.kind===site.kind)&&view.labels.filter(l=>view.microbeSites.some(s=>s.kind===l.kind)).length===1,'Only the clicked '+id+' shows its name');
-    fire('pointerdown',{pointerId:25,clientX:x,clientY:y,button:0});fire('pointerup',{pointerId:25,clientX:x,clientY:y});fire('click',{clientX:x,clientY:y});
-    check(elements.get('microbe-dialog').open&&elements.get('microbe-name').textContent===name,'Every located organism can be clicked to reopen its own name and picture');
-    check(state().time===savedTime&&JSON.stringify(state().reservoirs)===microbeState,'Locating and clicking microorganisms preserves scientific state');
-    await event('close-microbe');
-  }
-  await event('whole-mode');advance(2);
-  const v=state().view,toScreen=(x,y)=>[(.5+(x-v.camera.x)*v.camera.zoom/v.worldWidth)*v.width,(.5+(y-v.camera.y)*v.camera.zoom/800)*v.height];
-  for(const[fx,y,name]of[[.48,640,'Nitrosomonas europaea'],[.62,687,'Nitrobacter winogradskyi'],[.72,488,'Bacillus subtilis'],[.86,587,'Stutzerimonas stutzeri'],[.155,610,'Azotobacter chroococcum']]){const[x,sy]=toScreen(v.worldWidth*fx,y);fire('pointerdown',{pointerId:10,clientX:x,clientY:sy,button:0});fire('pointerup',{pointerId:10,clientX:x,clientY:sy});fire('click',{clientX:x,clientY:sy});check(elements.get('microbe-dialog').open&&elements.get('microbe-name').textContent===name,'Clicking each actual microbe cluster opens its matching picture');await event('close-microbe');await event('whole-mode');}
-  console.log(`PASS: ${assertions} ${offline?'standalone':'website'} 2.5D application event assertions. Modes, environmental controls, sound pipeline, presets, restart and scientific correspondence. Network disabled.`);
-})().catch(e=>{console.error(e);process.exitCode=1});
+/* Application event tests for the immersive interface, run against the real
+   built scripts (website or standalone) with the network disabled.
+   Usage: node tests/app.cjs [offline] [--size=WIDTHxHEIGHT] */
+const assert = require('node:assert/strict');
+const { createEnvironment, loadBuild } = require('./harness.cjs');
+const offline = process.argv.includes('offline');
+const sizeArg = (process.argv.find(a => a.startsWith('--size=')) || '--size=1400x620').slice(7).split('x').map(Number);
+const [W, H] = sizeArg;
+const build = loadBuild(offline);
+const env = createEnvironment({ width: W, height: H, html: build.html });
+for (const file of build.scripts) env.run(build.source(file), file);
+const { elements, state, advance, fire } = env, $ = id => elements.get(id);
+let assertions = 0;
+const check = (ok, message) => { assert.ok(ok, message); assertions++; };
+const close = (a, b, eps = 1e-8) => Math.abs(a - b) < eps;
+const view = () => state().view;
+const toScreen = ([x, y]) => { const v = view(), k = v.scale * v.camera.zoom; return [(x - v.camera.x) * k + v.width / 2, (y - v.camera.y) * k + v.height / 2]; };
+const canvas = $('landscape'), tap = async ([x, y], id = 30) => { await fire(canvas, 'pointerdown', { pointerId: id, clientX: x, clientY: y, button: 0 }); await fire(canvas, 'pointerup', { pointerId: id, clientX: x, clientY: y }); await fire(canvas, 'click', { clientX: x, clientY: y }); };
 
+(async () => {
+  /* immersive shell */
+  check(!env.select('header').length && !env.select('footer').length && !env.select('h1').length, 'No header, footer or page title: the scene fills the screen');
+  const tabs = env.select('.tabbar button');
+  check(tabs.length >= 7 && tabs.every(b => b.attrs['aria-label'] && b.descendants().some(c => c.tagName === 'SVG')), 'Floating tab bar uses icons with accessible names');
+
+  /* science runs and drives the visuals */
+  advance(3);
+  check(state().time > 1, 'Simulation advances');
+  check(state().particleCount > 0, 'Positive model flows emit particles');
+  check(state().ions.ammonium > 0 && state().ions.nitrate > 0 && state().ions.air > 0, 'Resident ions show the soil and air pools');
+
+  /* panels */
+  for (const name of ['cycle', 'act', 'soil', 'microbes', 'view']) {
+    const tab = env.select(`.tab[data-panel="${name}"]`)[0];
+    await fire(tab, 'click');
+    check(state().panel === name && !$('sheet').hidden && !$('panel-' + name).hidden && tab.attrs['aria-expanded'] === 'true', 'Tab opens its panel: ' + name);
+  }
+  await fire(env.select('.tab[data-panel="view"]')[0], 'click');
+  check(state().panel === null && $('sheet').hidden, 'Tapping the open tab closes the sheet');
+
+  /* cycle map */
+  await fire(env.select('.tab[data-panel="cycle"]')[0], 'click');
+  const arcs = $('cycle-map').querySelectorAll('.arc[data-proc]');
+  check(arcs.length >= 12, 'Cycle map draws every pathway');
+  const before = JSON.stringify(state().reservoirs), t0 = state().time;
+  await fire(arcs.find(a => a.dataset.proc === 'fixation'), 'click');
+  check(state().selected === 'fixation' && !$('explanation').hidden && state().focusRoutes.length === 1, 'Choosing an arrow focuses that process and shows its card');
+  check(state().panel === null, 'Focusing closes the sheet so the process stays visible');
+  check(state().time === t0 && JSON.stringify(state().reservoirs) === before, 'Focusing preserves scientific state');
+  check(/N₂/.test($('info-eq').innerHTML) && /NH₄⁺/.test($('info-eq').innerHTML), 'Card shows the reaction as formulas');
+  const seen = new Set([state().selected]);
+  for (let i = 0; i < 9; i++) { await fire('next-process', 'click'); seen.add(state().selected); }
+  check(seen.size === 10, 'Stepper walks through all ten processes');
+  await fire('next-process', 'click'); check(state().selected === 'fixation', 'Stepper wraps around the cycle');
+  await fire('prev-process', 'click'); check(state().selected === 'fertilizer', 'Stepper goes backwards');
+  await fire(env.select('.tab[data-panel="cycle"]')[0], 'click');
+  await fire(arcs.find(a => a.dataset.proc === 'nitri2'), 'click');
+  check(state().selected === 'nitri2' && state().focusRoutes.length === 1, 'Nitrification steps can be focused separately');
+  await fire('close-info', 'click');
+  check(state().selected === null && $('explanation').hidden, 'Closing the card returns to the whole cycle');
+
+  /* playback */
+  await fire('play', 'click'); const paused = state().time; advance(2);
+  check(state().time === paused && !state().playing, 'Pause freezes model time');
+  check($('play').classList.contains('paused'), 'Play button shows its paused state');
+
+  /* fertilizer */
+  const b4 = state(); $('fertilizer').value = '40'; await fire('fertilizer', 'input');
+  check(state().inputs === b4.inputs && JSON.stringify(state().reservoirs) === JSON.stringify(b4.reservoirs), 'Choosing a dose does not apply it');
+  check(/\+24 NH₄⁺/.test($('fertilizer-status').innerHTML) && /\+16 NO₃⁻/.test($('fertilizer-status').innerHTML), 'Dose preview shows the real 60/40 split');
+  await fire('add-fertilizer', 'click');
+  check(state().inputs === b4.inputs + 40, 'Fertilizer records the quantity added');
+  check(close(state().reservoirs.ammonium - b4.reservoirs.ammonium, 24) && close(state().reservoirs.nitrate - b4.reservoirs.nitrate, 16), 'Fertilizer changes the real ammonium and nitrate pools');
+  check(state().particleProcesses.includes('fertilizer'), 'Fertilizer pellets fall even while paused');
+  check(state().view.target.zoom > 1 || W < 420, 'Fertilizer frames the soil it lands on');
+  advance(1); check(state().time === paused, 'Fertilizer animation never advances paused science');
+
+  /* other interventions */
+  const sites = state().view.organicSites; await fire('leaves', 'click');
+  check(state().inputs === b4.inputs + 48, 'Dead leaves add external organic nitrogen');
+  check(close(state().view.organicSites.plant - sites.plant, 8) && state().view.organicSites.animal === sites.animal, 'Added leaves land in the leaf-litter site only');
+  check(close(state().view.organicSites.plant + state().view.organicSites.animal, state().reservoirs.organic, 1e-8), 'Leaf litter and dung share the model\'s single organic pool');
+  await fire('rain', 'click'); check(state().moisture > .55, 'Rain wets the soil');
+  await fire('lightning', 'click'); await fire('grow', 'click');
+  check(state().selected === null, 'Interventions keep the current view mode');
+  $('bacteria').value = '0'; await fire('bacteria', 'input'); $('moisture').value = '25'; await fire('moisture', 'input');
+  check(state().activity === 0 && state().moisture === .25, 'Sliders change the real model parameters');
+  await fire(env.select('[data-speed="4"]')[0], 'click'); await fire('play', 'click'); advance(1);
+  check(state().speed === 4 && state().time > paused + 1.8, 'Speed controls the bounded model step count');
+  check(state().rates.fixation === 0 && state().rates.nitri1 === 0, 'Zero microbe activity stops microbial transfers');
+  check(Math.abs(state().balanceError) < 1e-8, 'The whole intervention sequence conserves nitrogen');
+
+  /* scene labels and focus tags */
+  const infoTags = env.select('.tag[data-info]');
+  for (const tag of infoTags) {
+    await fire(tag, 'click');
+    check(state().selected === tag.dataset.info, 'Scene label focuses its process: ' + tag.dataset.thing);
+    if ($('microbe-dialog').open) await fire('close-microbe', 'click');
+  }
+
+  /* particle style: dots or chemical formulas */
+  await fire('close-info', 'click');
+  check(state().particleStyle === 'dots' && $('label-mode').attrs['aria-pressed'] === 'false', 'Particles start as dots');
+  await fire('label-mode', 'click'); advance(.5);
+  check(state().particleStyle === 'formula' && $('label-mode').attrs['aria-pressed'] === 'true', 'Toggle turns particles into chemical formulas');
+  check(env.store.get('nitrogen-particles') === 'formula', 'Formula choice is remembered');
+  await fire(env.document, 'keydown', { key: 'f', target: env.document });
+  check(state().particleStyle === 'dots', 'F key toggles back to dots');
+  await fire(env.document, 'keydown', { key: 'F', target: env.document }); advance(.3);
+  check(state().particleStyle === 'formula', 'F key toggles formulas again');
+  await fire(env.document, 'keydown', { key: 'f', target: $('fertilizer') });
+  check(state().particleStyle === 'formula', 'Typing in a control does not toggle');
+  await fire('label-mode', 'click');
+
+  /* scenarios, restart */
+  for (const [id, test, msg] of [['fertilized', s => s.time === 0 && s.inputs === 85, 'Over-fertilized preset resets and records its input'], ['rain', s => s.moisture === .9, 'Rainfall preset'], ['healthy', s => s.moisture === .55 && s.inputs === 0, 'Healthy preset']]) {
+    await fire(env.select(`[data-scenario="${id}"]`)[0], 'click'); check(test(state()) && state().scenario === id, msg);
+  }
+
+  /* sound */
+  await fire('sound', 'click'); check(state().sound === true && $('sound').attrs['aria-pressed'] === 'true', 'Sound toggle enables the audio pipeline');
+  await fire('lightning', 'click'); await fire('sound', 'click'); check(state().sound === false, 'Sound toggle mutes');
+  const audio = env.audioContexts[0]; audio.currentTime += 5; await fire('sound', 'click'); const started = audio.startedSources;
+  check(audio.gains[0].gain.value === 0 && audio.gains[1].gain.value === 0, 'Dry weather is silent');
+  await fire('lightning', 'click'); check(audio.startedSources === started + 1 && audio.gains[0].gain.value > .5, 'Dry lightning plays thunder');
+  check(audio.gains[1].gain.value === 0, 'Dry thunder does not start rain ambience');
+  audio.currentTime += 5; advance(.5); check(audio.gains[0].gain.value === 0, 'Silence returns after thunder');
+  await fire('sound', 'click'); const muted = audio.startedSources; await fire('lightning', 'click'); check(audio.startedSources === muted, 'Muted lightning stays silent');
+  advance(1); await fire('restart', 'click'); check(state().time === 0 && state().speed === 4, 'Restart keeps the playback speed');
+
+  /* view controls */
+  const sci = JSON.stringify(state().reservoirs), vt = state().time;
+  await fire('view-roots', 'click'); check(view().target.zoom > 1.2, 'Roots view zooms into the root zone');
+  check(state().time === vt && JSON.stringify(state().reservoirs) === sci, 'Inspecting never changes science');
+  await fire('play', 'click'); advance(2); check(view().camera.zoom > 1.2, 'Camera moves while paused');
+  const saved = state().time;
+  await fire('view-compounds', 'click'); advance(1); check(state().time === saved, 'Paused camera moves never advance science');
+  await fire('view-water', 'click'); advance(1); check(view().camera.y > view().worldHeight * .5, 'Groundwater view reaches the water table');
+  for (let i = 0; i < 8; i++) await fire('zoom-in', 'click'); advance(1); check(view().camera.zoom <= 4 + 1e-9, 'Zoom is bounded');
+  await fire('reset-view', 'click'); advance(2); check(close(view().camera.zoom, 1, 1e-3), 'Reset returns the whole landscape');
+  let prevented = false;
+  await fire(canvas, 'wheel', { clientX: W / 2, clientY: H / 2, deltaY: -180, preventDefault() { prevented = true; } }); advance(1);
+  check(prevented && view().camera.zoom > 1.2, 'Wheel zoom works and keeps the page still');
+  await fire(canvas, 'pointerdown', { pointerId: 1, clientX: W / 2, clientY: H / 2, button: 0 }); const ox = view().target.x;
+  await fire(canvas, 'pointermove', { pointerId: 1, clientX: W * .4, clientY: H / 2 }); check(view().target.x > ox, 'Drag pans the landscape');
+  await fire(canvas, 'pointerup', { pointerId: 1 });
+  await fire(canvas, 'pointerdown', { pointerId: 2, clientX: W * .4, clientY: H / 2, button: 0 }); await fire(canvas, 'pointerdown', { pointerId: 3, clientX: W * .6, clientY: H / 2, button: 0 });
+  const pz = view().target.zoom; await fire(canvas, 'pointermove', { pointerId: 3, clientX: W * .7, clientY: H / 2 }); check(view().target.zoom > pz, 'Pinch zooms in');
+  await fire(canvas, 'pointercancel', { pointerId: 2 }); await fire(canvas, 'pointerup', { pointerId: 3 });
+  await fire('reset-view', 'click'); advance(2);
+
+  /* resizing and orientation */
+  const beforeResize = JSON.stringify(state().reservoirs);
+  for (const [w, h] of [[366, 740], [800, 380], [W, H]]) {
+    env.resize(w, h); advance(.3);
+    check(view().width === w && view().height === h, 'Resize updates the scene: ' + w + '×' + h);
+    check(state().time === saved && JSON.stringify(state().reservoirs) === beforeResize, 'Resize preserves science and paused time');
+    check(Number.isFinite(view().camera.x) && view().camera.zoom >= 1 && view().camera.zoom <= 4, 'View stays finite and bounded after resize');
+  }
+
+  /* microorganisms */
+  check(!view().labels.some(l => view().microbeSites.some(s => s.kind === l.kind)), 'Microbe names stay hidden until one is chosen');
+  await fire('view-bacteria', 'click'); check($('microbe-dialog').open && $('microbe-name').textContent === 'Rhizobium etli', 'Bacteria button opens a named picture card');
+  const names = { rhizobium: 'Rhizobium etli', soilFixers: 'Azotobacter chroococcum', nostoc: 'Nostoc commune', nitrosomonas: 'Nitrosomonas europaea', nitrobacter: 'Nitrobacter winogradskyi', denitrifiers: 'Stutzerimonas stutzeri', decomposers: 'Bacillus subtilis' };
+  const pictures = new Set(), mState = JSON.stringify(state().reservoirs);
+  for (const [id, name] of Object.entries(names)) {
+    await fire(env.select(`[data-pick="${id}"]`)[0], 'click');
+    check($('microbe-name').textContent === name && $('microbe-picture').attrs['aria-label'].includes(name), 'Picture card names ' + name);
+    pictures.add($('microbe-picture').dataset.image);
+    check(/^https:\/\//.test($('microbe-reference').attrs.href), 'Each species has a scientific reference');
+    check(JSON.stringify(state().reservoirs) === mState && state().time === saved, 'Opening cards preserves science');
+  }
+  check(pictures.size === 7, 'Each microorganism has its own picture');
+  await fire('close-microbe', 'click'); check(!$('microbe-dialog').open, 'Picture card closes');
+  check(view().microbeSites.length === 7 && new Set(view().microbeSites.map(s => s.point.map(Math.round).join(','))).size === 7, 'All seven microbes live in distinct places');
+  for (const [id, name] of Object.entries(names)) {
+    await fire(env.select(`#panel-microbes [data-microbe="${id}"]`)[0], 'click');
+    check($('microbe-dialog').open && $('microbe-name').textContent === name, 'Microbe gallery opens ' + name);
+    await fire('locate-microbe', 'click'); advance(2);
+    const site = view().microbeSites.find(s => s.id === id), [x, y] = toScreen(site.point);
+    check(!$('microbe-dialog').open && view().microbe === id, 'Show me closes the card and circles ' + name);
+    check(x > 0 && x < W && y > 0 && y < H, 'The located organism is on screen: ' + id);
+    check(view().labels.filter(l => names[l.kind]).length <= 1 && (view().labels.some(l => l.kind === id) || W < 420), 'Only the chosen organism shows its name');
+    await tap([x, y]);
+    check($('microbe-dialog').open && $('microbe-name').textContent === name, 'Tapping the organism reopens its card: ' + id);
+    await fire('close-microbe', 'click');
+  }
+  await fire('close-info', 'click'); advance(2);
+  for (const id of ['nitrosomonas', 'nitrobacter', 'denitrifiers', 'soilFixers', 'decomposers']) {
+    const [x, y] = toScreen(view().microbeSites.find(s => s.id === id).point);
+    await tap([x, y], 40);
+    check($('microbe-dialog').open && $('microbe-name').textContent === names[id], 'Tapping each microbe colony in the whole view opens its card: ' + id);
+    await fire('close-microbe', 'click'); await fire('close-info', 'click'); advance(1);
+  }
+  await fire(env.document, 'keydown', { key: 'Escape' }); check(state().selected === null, 'Escape returns to the whole cycle');
+  check(Math.abs(state().balanceError) < 1e-8, 'Nitrogen is conserved at the end');
+  console.log(`PASS: ${assertions} ${offline ? 'standalone' : 'website'} application assertions at ${W}×${H}. Immersive shell, tab panels, cycle map, focus, particle formulas, interventions, sound, view, microbes. Network disabled.`);
+})().catch(e => { console.error(e); process.exitCode = 1; });
