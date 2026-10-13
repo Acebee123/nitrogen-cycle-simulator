@@ -6,6 +6,8 @@ A full-screen, living cross-section of a field: sky, bean plant, cow, soil, root
 
 Open **dist-offline/Nitrogen-Cycle.html** in a browser that allows local HTML JavaScript. Share this one file through WhatsApp, not the website's index.html. It is about 1 MiB and needs neither a server nor internet. A Content Security Policy blocks all network connections; sound is generated locally.
 
+The page opens on a clean, still landscape — no particles or motion — so you can introduce the scene first. Press **▶ Play** to start the live flow, or the **Journey** button to follow one atom.
+
 ## Journey mode — follow one nitrogen atom
 
 Tap the **journey** button (the winding path, next to play) to pause the live model and follow a single glowing nitrogen atom round the cycle, station by station:

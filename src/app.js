@@ -9,7 +9,7 @@
   scene.initViewControls();
   scene.attachLabels($('scene-labels'));
 
-  let playing = true, speed = 1, accumulator = 0, previous = 0, uiClock = 0, raf = 0, toastTimer = 0;
+  let playing = false, fresh = true, speed = 1, accumulator = 0, previous = 0, uiClock = 0, raf = 0, toastTimer = 0;
   let formulaParticles = false;
   try { formulaParticles = localStorage.getItem('nitrogen-particles') === 'formula'; } catch (err) { /* storage unavailable */ }
   let selected = null, openPanelName = null, sound = false, audio = null, scenario = 'healthy', appliedFertilizer = 0;
@@ -177,7 +177,7 @@
   /* ---------- environment actions ---------- */
   function action(id, run, text) {
     on($(id), 'click', () => {
-      run(); scene.ingest(model.drainFlows()); updateUI(); announce(typeof text === 'function' ? text() : text);
+      wake(); run(); scene.ingest(model.drainFlows()); updateUI(); announce(typeof text === 'function' ? text() : text);
       $(id).classList.add('active'); setTimeout(() => $(id).classList.remove('active'), 700);
     });
   }
@@ -198,7 +198,13 @@
   on($('moisture'), 'input', () => { model.moistureTarget = Number($('moisture').value) / 100; model.moisture = model.moistureTarget; updateUI(); });
 
   /* ---------- playback, speed, scenarios ---------- */
+  // The page opens on a clean, still landscape; the first Play or Journey starts the motion.
+  function wake() {
+    if (!fresh) return;
+    fresh = false; scene.pristine = false; document.querySelector('.app').classList.remove('fresh');
+  }
   function setPlaying(next) {
+    if (next) wake();
     playing = next; const b = $('play');
     b.classList.toggle('paused', !playing); b.setAttribute('aria-label', playing ? 'Pause simulation' : 'Play simulation'); b.title = playing ? 'Pause' : 'Play';
     if (audio) audio.setWeather(model.rain > 0, playing && sound);
@@ -382,7 +388,7 @@
     if (journey.active) return;
     if (openPanelName) openPanel(openPanelName);
     if ($('microbe-dialog').open) $('microbe-dialog').close();
-    whole(); journeyWasPlaying = playing; setPlaying(false);
+    wake(); whole(); journeyWasPlaying = playing; setPlaying(false);
     journey.start();
     document.querySelector('.app').classList.add('journey-on'); $('journey').setAttribute('aria-pressed', 'true');
     $('journey-card').hidden = false; renderJourney(); updateInsets(); journey.frameCamera();
@@ -488,14 +494,15 @@
   }
   on(window, 'pagehide', e => { if (e.persisted) return; cancelAnimationFrame(raf); clearTimeout(toastTimer); scene.destroy(); if (audio) audio.destroy(); for (const dispose of disposers) dispose(); });
   fertilizerPreview(false); applyParticleMode(); updateInsets();
+  scene.pristine = true; document.querySelector('.app').classList.add('fresh'); setPlaying(false);
   scene.ingest(model.drainFlows()); updateUI(); raf = requestAnimationFrame(frame);
-  setTimeout(() => announce('Tap anything · pinch or scroll to zoom'), 700);
+  setTimeout(() => { if (fresh) announce('Press ▶ to start the flow, or the path button for a Journey'); }, 700);
 
   // Read-only diagnostics make conservation and transfer behaviour inspectable.
   Object.defineProperty(window, 'nitrogenDiagnostics', {
     value: () => ({
       time: model.time, reservoirs: { ...model.n }, inputs: model.inputs, total: model.total(), balanceError: model.balanceError(), rates: { ...model.rates },
-      history: model.history.map(p => ({ ...p })), playing, speed, moisture: model.moisture, activity: model.activity, scenario,
+      history: model.history.map(p => ({ ...p })), playing, fresh, speed, moisture: model.moisture, activity: model.activity, scenario,
       view: scene.viewStats(), particleCount: scene.particles.length, selected, panel: openPanelName,
       particleProcesses: [...new Set(scene.particles.map(p => p.recipe.process))],
       focusRoutes: scene.focusRoutes().map(({ from, to, process }) => ({ from, to, process })),

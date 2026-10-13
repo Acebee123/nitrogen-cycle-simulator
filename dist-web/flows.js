@@ -418,7 +418,7 @@
   P.render = function (dt, playing) {
     if (!this.camera || !this.soilLayer || !this.canvas.width) return;
     const m = this.model, simDt = playing ? dt * this.speed : 0;
-    this.clock += this.reduced ? 0 : dt;
+    this.clock += this.reduced || this.pristine ? 0 : dt; // a fresh scene stands still
     // camera easing
     const c = this.camera, target = this.viewTarget, k = this.reduced ? 1 : 1 - Math.exp(-dt * 8);
     for (const key of ['zoom', 'x', 'y']) c[key] += (target[key] - c[key]) * k;
@@ -474,7 +474,7 @@
     ctx.setTransform(...wt);
     this.drawSky(ctx, t);
     this.drawClouds(ctx, t, false); this.drawClouds(ctx, t, true);
-    this.drawIons(ctx, ['air']);
+    if (!this.pristine) this.drawIons(ctx, ['air']);
     this.drawLayer(ctx, this.hillLayer);
     this.drawTree(ctx, t);
     this.drawGrass(ctx, t, true);
@@ -484,7 +484,7 @@
     this.drawWorm(ctx, t);
     for (const id of ['soilFixers', 'nitrosomonas', 'nitrobacter', 'denitrifiers', 'decomposers', 'nostoc', 'rhizobium']) this.drawColony(ctx, id, ...this.microbeLocation(id), t, this.inspectedMicrobe === id ? 1 : 0);
     this.drawColony(ctx, 'decomposers', ...this.L.leafColony, t, 0);
-    this.drawIons(ctx, ['ammonium', 'nitrite', 'nitrate', 'leached']);
+    if (!this.pristine) this.drawIons(ctx, ['ammonium', 'nitrite', 'nitrate', 'leached']);
     if (this.inputPulse && this.inputPulse.remaining > 0) this.drawInputPulse(ctx);
     this.drawLitter(ctx, t);
     // the cow passes in front of the plant when it walks up to browse it
@@ -495,8 +495,8 @@
     this.drawGrass(ctx, t, false);
     this.drawFreshDung(ctx, t); // on top of the grass, so the drop and the fresh pat are easy to see
     this.drawFallingLeaves(ctx);
-    if (!this.journey) for (const p of this.particles) if (p.progress >= 0 && !(this.focusFade > .05 && this.processMatch(p.recipe.process))) this.drawParticle(ctx, p, false);
-    this.drawEffects(ctx, t, false);
+    if (!this.journey && !this.pristine) for (const p of this.particles) if (p.progress >= 0 && !(this.focusFade > .05 && this.processMatch(p.recipe.process))) this.drawParticle(ctx, p, false);
+    if (!this.pristine) this.drawEffects(ctx, t, false);
     this.drawRain(ctx, t, this.storm);
     this.drawBolt(ctx);
     if (this.inspectedMicrobe) {

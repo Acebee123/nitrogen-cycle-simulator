@@ -23,6 +23,13 @@ const canvas = $('landscape'), tap = async ([x, y], id = 30) => { await fire(can
   const tabs = env.select('.tabbar button');
   check(tabs.length >= 7 && tabs.every(b => b.attrs['aria-label'] && b.descendants().some(c => c.tagName === 'SVG')), 'Floating tab bar uses icons with accessible names');
 
+  /* a fresh, still landscape until Play or Journey */
+  advance(2);
+  check(state().fresh && !state().playing && state().time === 0 && $('play').attrs['aria-label'] === 'Play simulation', 'Opens on a clean, still scene: nothing runs yet');
+  check(env.select('.app.fresh').length === 1, 'Play and Journey invite the first tap');
+  await fire('play', 'click');
+  check(!state().fresh && state().playing && !env.select('.app.fresh').length, 'Play starts the flow');
+
   /* science runs and drives the visuals */
   advance(3);
   check(state().time > 1, 'Simulation advances');

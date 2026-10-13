@@ -279,3 +279,9 @@ dialog{color:var(--text)}
 }
 @media (max-height:620px) and (min-width:701px){.journey-card{gap:6px}}
 @media (max-height:500px) and (min-width:701px){.journey-card{width:300px;gap:5px;padding:9px 11px 8px;max-height:calc(100% - 70px)}.j-titles h2{font-size:15px}.j-badge{width:28px;height:28px}.j-caption{font-size:12.5px;min-height:0}.j-eq .chem{font-size:12px;padding:3px 8px}.j-controls .icon-btn{width:34px;height:34px}.j-next{height:36px}.j-meta .agents button,.agents .org,.j-detail-btn{width:30px;height:30px}}
+/* fresh start: a clean still landscape until Play or Journey is pressed */
+.fresh .tag.formula{opacity:0!important;visibility:hidden!important}
+.fresh #play,.fresh #journey{animation:invite 2.4s ease-in-out infinite}
+.fresh #journey{animation-delay:1.2s}
+@keyframes invite{0%,100%{box-shadow:0 0 0 0 rgba(255,214,90,0)}40%{box-shadow:0 0 0 6px rgba(255,214,90,.28)}}
+@media (prefers-reduced-motion:reduce){.fresh #play,.fresh #journey{animation:none;box-shadow:0 0 0 3px rgba(255,214,90,.3)}}
